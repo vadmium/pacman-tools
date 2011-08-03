@@ -24,6 +24,44 @@ set -o errexit -o nounset
 WS="$IFS"
 NL='
 '
+TAB="$(printf '\t')"
+
+SUDO="sudo -E --"
+
+usage() {
+    cat << USAGE
+Options:
+fs <dir>
+${TAB}Default: ./stage, deleted when finished
+bundle <cpio.gz>
+fs-axx <command>
+${TAB}Default: "fakeroot --" if staged
+fs-sudo${TAB}Access target filesystem with "$SUDO"
+repo <url>
+${TAB}Multiple repositories separated by whitespace or provided in multiple
+${TAB}arguments. Repositories are additional to those from pacman.conf.
+${TAB}Suggested:
+${TAB}http://mirrors.kernel.org/archlinux/<repo>/os/\$arch/<repo>.db for
+${TAB}<repo> in core,extra,community
+config${TAB}Default: /etc/pacman.conf
+cache-axx <command>
+${TAB}Default: nothing
+cache-sudo
+${TAB}Access package database and cache sudo "$SUDO"
+install <package>,<package>,. . .
+${TAB}Recommended: base
+build <PKGBUILD>,<PKGBUILD>
+${TAB}PKGBUILD or directory containing one
+arch <arch>
+${TAB}Default: uname -m
+enable <repo>,<repo>,. . .
+${TAB}Suggested: core
+disable <repo>,<repo>,. . .
+${TAB}Recommended: testing
+offline
+help
+USAGE
+}
 
 while test "$#" -gt 0; do
     case "$1" in
@@ -79,12 +117,21 @@ while test "$#" -gt 0; do
     offline)
         OFFLINE=set
         shift 1;;
+    help)
+        usage
+        exit 0
+        shift 1;;
     *)
-        echo "Bad option: $1" >&2
+        echo "Bad option: $1 (Try \"help\")" >&2
         false
         shift 1;;
     esac
 done
+
+if test -z "${INSTALL+set}"; then
+    echo >&2 "No packages specified (Try \"help\")"
+    false
+fi
 
 : "${CONFIG=/etc/pacman.conf}"
 : "${CX=}"
