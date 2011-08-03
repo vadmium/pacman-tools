@@ -185,7 +185,9 @@ fi
 if test -z "${arch+set}"; then
     arch="$(uname -m)"
 fi
-REPOS="$(printf '%s\n' "$REPOS" | sed s/'$arch'/"$arch"/g)"
+if test -n "${REPOS+set}"; then
+    REPOS="$(printf '%s\n' "$REPOS" | sed s/'$arch'/"$arch"/g)"
+fi
 
 WGET="wget"
 #WGET="wget --no-verbose"
@@ -214,7 +216,7 @@ FS="${DESTDIR-stage}"
 $CX mkdir -p "$DBPATH/sync"
 $CX mkdir -p "$CACHEDIR"
 
-if test -z "${OFFLINE+set}"; then
+if test -z "${OFFLINE+set}" -a -n "${REPOS+set}"; then
     printf '%s\n' "$REPOS" |
     $CX $WGET --timestamping --directory-prefix="$DBPATH/sync" -i -
 fi
@@ -226,7 +228,7 @@ sort -u > "$SCRATCH/search"
 
 IFS="$NL"
 mkdir "$SCRATCH/db"
-for repo in $REPOS; do
+for repo in ${REPOS-}; do
     db="${repo##*/}"
     mkdir "$SCRATCH/db/$db"
     echo >&2 "Reading: $db"
@@ -240,7 +242,7 @@ while test -s "$SCRATCH/search"; do
     unset new_deps
     
     IFS="$NL"
-    for repo in $REPOS; do
+    for repo in ${REPOS-}; do
         db="${repo##*/}"
         echo >&2 "  Searching: $db"
         repo="$(printf '%s\n' "$repo" | sed 's:[^/]*$::')"
@@ -324,13 +326,14 @@ while test -s "$SCRATCH/search"; do
 done
 echo >&2 "Total install size: $total"
 
-if test -z "${OFFLINE+set}"; then
+if test -z "${OFFLINE+set}" -a -n "${pkgs+set}"; then
     IFS="$WS"
     printf '%s\n' "$pkgs" |
     $CX $WGET -c --directory-prefix="$CACHEDIR" -i -
 fi
 
-printf '%s\n' "$pkgs" | sed 's:^.*/::' | {
+if test -n "${pkgs+set}"; then printf '%s\n' "$pkgs"; fi |
+sed 's:^.*/::' | {
     cat << 'SH' > "$SCRATCH/script"
         set -o errexit -o nounset
         
