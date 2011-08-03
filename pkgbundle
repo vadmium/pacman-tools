@@ -89,13 +89,13 @@ done
 : "${CONFIG=/etc/pacman.conf}"
 : "${CX=}"
 
-if test ! -v DESTDIR; then
+if test -n "${DESTDIR+set}"; then
     : "${FSX=}"
 else
     : "${FSX=fakeroot --}"
 fi
 
-if test -v arch; then
+if test -n "${arch+set}"; then
     # Don't use Pacman's database if we override the architecture
     : "${DBPATH=.}"
 fi
@@ -120,13 +120,13 @@ if test -e "$CONFIG"; then
         return 1
     }
     
-    while test -v line || read -r line; do
+    while test -n "${line+set}" || read -r line; do
         case "$line" in
         '[options]')
             while ini_line; do
                 case "$key" in
                 RootDir)
-                    if test ! -v BUNDLE; then
+                    if test -z "${BUNDLE+set}"; then
                         : "${DESTDIR="$value"}"
                     fi;;
                 DBPath)
@@ -144,10 +144,10 @@ if test -e "$CONFIG"; then
             repo="${line#'['}"
             repo="${repo%']'}"
             if {
-                test -v ENABLE &&
+                test -n "${ENABLE+set}" &&
                 ! printf '%s\n' "$ENABLE" | grep -qFx -- "$repo"
             } || {
-                test -v DISABLE &&
+                test -n "${DISABLE+set}" &&
                 printf '%s\n' "$DISABLE" | grep -qFx -- "$repo"
             } then
                 unset line
@@ -182,7 +182,7 @@ fi
 
 : "${DBPATH=.}" "${CACHEDIR=pkg}"
 
-if test ! -v arch; then
+if test -z "${arch+set}"; then
     arch="$(uname -m)"
 fi
 REPOS="$(printf '%s\n' "$REPOS" | sed s/'$arch'/"$arch"/g)"
@@ -196,10 +196,10 @@ onexit() {
     IFS="$WS"
     echo >&2 "cleaning up"
     $CX rm "$DBPATH/db.lck"
-    if test -v SCRATCH; then
+    if test -n "${SCRATCH+set}"; then
         rm -rf "$SCRATCH"
     fi
-    if test -v FS; then
+    if test -n "${FS+set}"; then
         $FSX rm -rf "$FS"
     fi
 }
@@ -214,14 +214,14 @@ FS="${DESTDIR-stage}"
 $CX mkdir -p "$DBPATH/sync"
 $CX mkdir -p "$CACHEDIR"
 
-if test ! -v OFFLINE; then
+if test -z "${OFFLINE+set}"; then
     printf '%s\n' "$REPOS" |
     $CX $WGET --timestamping --directory-prefix="$DBPATH/sync" -i -
 fi
 
 SCRATCH="$(mktemp --tmpdir --directory pkgb.XXXXXXXXXX)"
 
-if test -v INSTALL; then printf '%s\n' "$INSTALL"; fi |
+if test -n "${INSTALL+set}"; then printf '%s\n' "$INSTALL"; fi |
 sort -u > "$SCRATCH/search"
 
 IFS="$NL"
@@ -236,7 +236,7 @@ done
 total=0
 : > "$SCRATCH/resolved"
 while test -s "$SCRATCH/search"; do
-    echo >&2 "Resolving:" $(< "$SCRATCH/search")
+    echo >&2 "Resolving:" $(cat "$SCRATCH/search")
     unset new_deps
     
     IFS="$NL"
@@ -287,7 +287,7 @@ while test -s "$SCRATCH/search"; do
                 done < "$pkg/depends"
             fi
             
-            if test -v groups; then
+            if test -n "${groups+set}"; then
                 ! groups="$(grep -Fx "$groups" "$SCRATCH/search")"
             fi
             if {
@@ -298,11 +298,11 @@ while test -s "$SCRATCH/search"; do
             fi
             
             pkgs="${pkgs+$pkgs$NL}$filename"
-            if test -v deps; then
+            if test -n "${deps+set}"; then
                 new_deps="${new_deps+$new_deps$NL}$deps"
             fi
             printf '%s\n' "$provs" >> "$SCRATCH/resolved"
-            if test -v groups; then
+            if test -n "${groups+set}"; then
                 printf '%s\n' "$groups" >> "$SCRATCH/resolved"
             fi
             total="$((total + size))"
@@ -319,12 +319,12 @@ while test -s "$SCRATCH/search"; do
         false
     fi
     
-    if test -v new_deps; then printf '%s\n' "$new_deps"; fi |
+    if test -n "${new_deps+set}"; then printf '%s\n' "$new_deps"; fi |
     sort -u | comm -23 - -- "$SCRATCH/resolved" > "$SCRATCH/search"
 done
 echo >&2 "Total install size: $total"
 
-if test ! -v OFFLINE; then
+if test -z "${OFFLINE+set}"; then
     IFS="$WS"
     printf '%s\n' "$pkgs" |
     $CX $WGET -c --directory-prefix="$CACHEDIR" -i -
@@ -356,10 +356,10 @@ SH
     IFS="$WS"
     FS="$FS" CACHEDIR="$CACHEDIR"  BUNDLE="${BUNDLE-}" $FSX sh \
         "$SCRATCH/script"
-} | if test -v BUNDLE; then
+} | if test -n "${BUNDLE+set}"; then
     gzip -c > "$BUNDLE"
 fi
 
-if test -v DESTDIR; then
+if test -n "${DESTDIR+set}"; then
     unset FS
 fi
