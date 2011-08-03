@@ -20,16 +20,152 @@
 # check remote server for newer versions of files (eg package database)
 # cross makepkg? otherwise, only really build "any" arch packages
 
-set -o errexit -o nounset
-WS="$IFS"
-NL='
-'
-TAB="$(printf '\t')"
+main() {
+    shell_init
+    get_options "$@"
+    
+    : "${CONFIG=/etc/pacman.conf}"
+    : "${CX=}"
+    
+    if test -n "${DESTDIR+set}"; then
+        : "${FSX=}"
+    else
+        : "${FSX=fakeroot --}"
+    fi
+    
+    get_pacman_conf
+    
+    : "${DBPATH=.}" "${CACHEDIR=pkg}"
+    
+    if test -z "${arch+set}"; then
+        arch="$(uname -m)"
+    fi
+    if test -n "${REPOS+set}"; then
+        REPOS="$(printf '%s\n' "$REPOS" | sed s/'$arch'/"$arch"/g)"
+    fi
+    
+    unset SCRATCH FS
+    
+    IFS="$WS"
+    $CX mkdir -p "$DBPATH"
+    echo "$$" | LOCK="$DBPATH/db.lck" $CX sh -o noclobber -c 'cat > "$LOCK"'
+    trap onexit EXIT
+    
+    $FSX mkdir "${DESTDIR-stage}"
+    FS="${DESTDIR-stage}"
+    
+    $CX mkdir -p "$DBPATH/sync"
+    $CX mkdir -p "$CACHEDIR"
+    
+    if test -z "${OFFLINE+set}" -a -n "${REPOS+set}"; then
+        printf '%s\n' "$REPOS" |
+        $CX $WGET --timestamping --directory-prefix="$DBPATH/sync" -i -
+    fi
+    
+    SCRATCH="$(mktemp --tmpdir --directory pkgb.XXXXXXXXXX)"
+    
+    resolve_packages
+    
+    if test -z "${OFFLINE+set}" -a -n "${pkgs+set}"; then
+        IFS="$WS"
+        printf '%s\n' "$pkgs" |
+        $CX $WGET -c --directory-prefix="$CACHEDIR" -i -
+    fi
+    
+    stage
+    
+    if test -n "${DESTDIR+set}"; then
+        unset FS
+    fi
+}
+
+onexit() {
+    IFS="$WS"
+    echo >&2 "cleaning up"
+    $CX rm "$DBPATH/db.lck"
+    if test -n "${SCRATCH+set}"; then
+        rm -rf "$SCRATCH"
+    fi
+    if test -n "${FS+set}"; then
+        $FSX rm -rf "$FS"
+    fi
+}
 
 SUDO="sudo -E --"
 
+WGET="wget"
+#WGET="wget --no-verbose"
+
+get_options() {
+    while test "$#" -gt 0; do
+        case "$1" in
+        fs)
+            DESTDIR="$2"
+            shift 2;;
+        bundle)
+            BUNDLE="$2"
+            shift 2;;
+        fs-axx)
+            FSX="$2"
+            shift 2;;
+        fs-sudo)
+            FSX="$SUDO"
+            shift;;
+        repo)
+            for repo in $2; do
+                REPOS="${REPOS+$REPOS$NL}$repo"
+            done
+            shift 2;;
+        config)
+            CONFIG="$2"
+            shift 2;;
+        cache-axx)
+            CX="$2"
+            shift 2;;
+        cache-sudo)
+            CX="$SUDO"
+            shift;;
+        install)
+            IFS="$WS,"
+            INSTALL="${INSTALL+$INSTALL$NL}$(printf '%s\n' $2)"
+            shift 2;;
+        build)
+            echo "Not implemented" >&2
+            false
+            shift 2;;
+        arch)
+            arch="$2"
+            shift 2;;
+        enable)
+            IFS="$WS,"
+            ENABLE="${ENABLE+$ENABLE$NL}$(printf '%s\n' $2)"
+            shift 2;;
+        disable)
+            IFS="$WS,"
+            DISABLE="${DISABLE+$DISABLE$NL}$(printf '%s\n' $2)"
+            shift 2;;
+        offline)
+            OFFLINE=set
+            shift 1;;
+        help)
+            usage
+            exit 0
+            shift 1;;
+        *)
+            echo "Bad option: $1 (Try \"help\")" >&2
+            false
+            shift 1;;
+        esac
+    done
+    
+    if test -z "${INSTALL+set}"; then
+        echo >&2 "No packages specified (Try \"help\")"
+        false
+    fi
+}
+
 usage() {
-    cat << USAGE
+cat << USAGE
 Options:
 fs <dir>
 ${TAB}Default: ./stage, deleted when finished
@@ -63,353 +199,237 @@ help
 USAGE
 }
 
-while test "$#" -gt 0; do
-    case "$1" in
-    fs) # default: ./stage, and delete when finished
-        DESTDIR="$2"
-        shift 2;;
-    bundle)
-        BUNDLE="$2"
-        shift 2;;
-    fs-axx) # default: fakeroot -- if staged
-        FSX="$2"
-        shift 2;;
-    fs-sudo)
-        FSX="sudo -E --"
-        shift;;
-    repo)
-        # multiple options; additional to those from pacman.conf;
-        # recommended:
-        # http://mirrors.kernel.org/archlinux/<repo>/os/$arch/<repo>.db for
-        # <repo> in core,extra,community
-        for repo in $2; do
-            REPOS="${REPOS+$REPOS$NL}$repo"
-        done
-        shift 2;;
-    config) # default: /etc/pacman.conf
-        CONFIG="$2"
-        shift 2;;
-    cache-axx) # default: nothing
-        CX="$2"
-        shift 2;;
-    cache-sudo)
-        CX="sudo -E --"
-        shift;;
-    install) # multiple options; recommended: base
-        IFS="$WS,"
-        INSTALL="${INSTALL+$INSTALL$NL}$(printf '%s\n' $2)"
-        shift 2;;
-    build) # multiple options; PKGBUILD or directory containing one
-        echo "Not implemented" >&2
-        false
-        shift 2;;
-    arch) # default: uname -m
-        arch="$2"
-        shift 2;;
-    enable)
-        IFS="$WS,"
-        ENABLE="${ENABLE+$ENABLE$NL}$(printf '%s\n' $2)"
-        shift 2;;
-    disable) # recommended: testing
-        IFS="$WS,"
-        DISABLE="${DISABLE+$DISABLE$NL}$(printf '%s\n' $2)"
-        shift 2;;
-    offline)
-        OFFLINE=set
-        shift 1;;
-    help)
-        usage
-        exit 0
-        shift 1;;
-    *)
-        echo "Bad option: $1 (Try \"help\")" >&2
-        false
-        shift 1;;
-    esac
-done
-
-if test -z "${INSTALL+set}"; then
-    echo >&2 "No packages specified (Try \"help\")"
-    false
-fi
-
-: "${CONFIG=/etc/pacman.conf}"
-: "${CX=}"
-
-if test -n "${DESTDIR+set}"; then
-    : "${FSX=}"
-else
-    : "${FSX=fakeroot --}"
-fi
-
-if test -n "${arch+set}"; then
-    # Don't use Pacman's database if we override the architecture
-    : "${DBPATH=.}"
-fi
-
-if test -e "$CONFIG"; then
-    unset line
-    
-    ini_line() {
-        unset line
-        while read -r line; do
-            case "$line" in
-            '['*']')
-                return 1;;
-            '#'* | '')
-                continue;;
-            esac
-            
-            key="$(printf '%s\n' "$line" | sed 's/[ \t\n]*=.*$//')"
-            value="$(printf '%s\n' "$line" | sed 's/^[^=]*=\?[ \t\n]*//')"
-            return 0
-        done
-        return 1
-    }
-    
-    while test -n "${line+set}" || read -r line; do
-        case "$line" in
-        '[options]')
-            while ini_line; do
-                case "$key" in
-                RootDir)
-                    if test -z "${BUNDLE+set}"; then
-                        : "${DESTDIR="$value"}"
-                    fi;;
-                DBPath)
-                    : "${DBPATH="$value"}";;
-                CacheDir)
-                    : "${CACHEDIR="$value"}";;
-                Architecture)
-                    if test "$value" != auto; then
-                        : "${arch="$value"}"
-                    fi;;
-                esac
-            done;;
-        
-        '['*']')
-            repo="${line#'['}"
-            repo="${repo%']'}"
-            if {
-                test -n "${ENABLE+set}" &&
-                ! printf '%s\n' "$ENABLE" | grep -qFx -- "$repo"
-            } || {
-                test -n "${DISABLE+set}" &&
-                printf '%s\n' "$DISABLE" | grep -qFx -- "$repo"
-            } then
-                unset line
-                continue
-            fi
-            
-            unset server
-            while ini_line; do
-                case "$key" in
-                Include)
-                    while ini_line; do
-                        if test "$key" = Server; then
-                            : "${server="$value"}"
-                        fi
-                    done < "$value";;
-                Server)
-                    : "${server="$value"}";;
-                esac
-            done
-            
-            server="$(printf '%s/$repo.db\n' "$server" |
-                sed s/'$repo'/"$repo"/g)"
-            REPOS="${REPOS+$REPOS$NL}$server";;
-        
-        *)
-            unset line;;
-        esac
-    done < "$CONFIG"
-    
-    : "${DBPATH=/var/lib/pacman}" "${CACHEDIR=/var/cache/pacman/pkg}"
-fi
-
-: "${DBPATH=.}" "${CACHEDIR=pkg}"
-
-if test -z "${arch+set}"; then
-    arch="$(uname -m)"
-fi
-if test -n "${REPOS+set}"; then
-    REPOS="$(printf '%s\n' "$REPOS" | sed s/'$arch'/"$arch"/g)"
-fi
-
-WGET="wget"
-#WGET="wget --no-verbose"
-
-unset SCRATCH FS
-
-onexit() {
-    IFS="$WS"
-    echo >&2 "cleaning up"
-    $CX rm "$DBPATH/db.lck"
-    if test -n "${SCRATCH+set}"; then
-        rm -rf "$SCRATCH"
+get_pacman_conf() {
+    if test -n "${arch+set}"; then
+        # Don't use Pacman's database if we override the architecture
+        : "${DBPATH=.}"
     fi
-    if test -n "${FS+set}"; then
-        $FSX rm -rf "$FS"
+    
+    if test -e "$CONFIG"; then
+        unset line
+        
+        while test -n "${line+set}" || read -r line; do
+            case "$line" in
+            '[options]')
+                while ini_line; do
+                    case "$key" in
+                    RootDir)
+                        if test -z "${BUNDLE+set}"; then
+                            : "${DESTDIR="$value"}"
+                        fi;;
+                    DBPath)
+                        : "${DBPATH="$value"}";;
+                    CacheDir)
+                        : "${CACHEDIR="$value"}";;
+                    Architecture)
+                        if test "$value" != auto; then
+                            : "${arch="$value"}"
+                        fi;;
+                    esac
+                done;;
+            
+            '['*']')
+                repo="${line#'['}"
+                repo="${repo%']'}"
+                if {
+                    test -n "${ENABLE+set}" &&
+                    ! printf '%s\n' "$ENABLE" | grep -qFx -- "$repo"
+                } || {
+                    test -n "${DISABLE+set}" &&
+                    printf '%s\n' "$DISABLE" | grep -qFx -- "$repo"
+                } then
+                    unset line
+                    continue
+                fi
+                
+                unset server
+                while ini_line; do
+                    case "$key" in
+                    Include)
+                        while ini_line; do
+                            if test "$key" = Server; then
+                                : "${server="$value"}"
+                            fi
+                        done < "$value";;
+                    Server)
+                        : "${server="$value"}";;
+                    esac
+                done
+                
+                server="$(printf '%s/$repo.db\n' "$server" |
+                    sed s/'$repo'/"$repo"/g)"
+                REPOS="${REPOS+$REPOS$NL}$server";;
+            
+            *)
+                unset line;;
+            esac
+        done < "$CONFIG"
+        
+        : "${DBPATH=/var/lib/pacman}" "${CACHEDIR=/var/cache/pacman/pkg}"
     fi
 }
 
-IFS="$WS"
-$CX mkdir -p "$DBPATH"
-PID="$$" LOCK="$DBPATH/db.lck" $CX sh -o noclobber -c 'echo "$PID" > "$LOCK"'
-trap onexit EXIT
+ini_line() {
+    unset line
+    while read -r line; do
+        case "$line" in
+        '['*']')
+            return 1;;
+        '#'* | '')
+            continue;;
+        esac
+        
+        key="$(printf '%s\n' "$line" | sed 's/[ \t\n]*=.*$//')"
+        value="$(printf '%s\n' "$line" | sed 's/^[^=]*=\?[ \t\n]*//')"
+        return 0
+    done
+    return 1
+}
 
-$FSX mkdir "${DESTDIR-stage}"
-FS="${DESTDIR-stage}"
-$CX mkdir -p "$DBPATH/sync"
-$CX mkdir -p "$CACHEDIR"
-
-if test -z "${OFFLINE+set}" -a -n "${REPOS+set}"; then
-    printf '%s\n' "$REPOS" |
-    $CX $WGET --timestamping --directory-prefix="$DBPATH/sync" -i -
-fi
-
-SCRATCH="$(mktemp --tmpdir --directory pkgb.XXXXXXXXXX)"
-
-if test -n "${INSTALL+set}"; then printf '%s\n' "$INSTALL"; fi |
-sort -u > "$SCRATCH/search"
-
-IFS="$NL"
-mkdir "$SCRATCH/db"
-for repo in ${REPOS-}; do
-    db="${repo##*/}"
-    mkdir "$SCRATCH/db/$db"
-    echo >&2 "Reading: $db"
-    tar xf "$DBPATH/sync/$db" -C "$SCRATCH/db/$db" -k
-done
-
-total=0
-: > "$SCRATCH/resolved"
-while test -s "$SCRATCH/search"; do
-    echo >&2 "Resolving:" $(cat "$SCRATCH/search")
-    unset new_deps
+resolve_packages() {
+    if test -n "${INSTALL+set}"; then printf '%s\n' "$INSTALL"; fi |
+    sort -u > "$SCRATCH/search"
     
     IFS="$NL"
+    mkdir "$SCRATCH/db"
     for repo in ${REPOS-}; do
         db="${repo##*/}"
-        echo >&2 "  Searching: $db"
-        repo="$(printf '%s\n' "$repo" | sed 's:[^/]*$::')"
-        
-        for pkg in "$SCRATCH/db/$db"/*; do
-            unset provs groups deps filename
-            size=0
-            
-            while read -r line; do
-                case "$line" in
-                %FILENAME%)
-                    while read -r line && test -n "$line"; do
-                        filename="${filename+$filename$NL}$repo$line"
-                    done;;
-                %NAME%)
-                    while read -r line && test -n "$line"; do
-                        provs="${provs+$provs$NL}$line"
-                    done;;
-                %GROUPS%)
-                    while read -r line && test -n "$line"; do
-                        groups="${groups+$groups$NL}$line"
-                    done;;
-                %ISIZE%)
-                    while read -r line && test -n "$line"; do
-                        size="$((size + line))"
-                    done;;
-                esac
-            done < "$pkg/desc"
-            
-            if test -e "$pkg/depends"; then
-                while read -r line; do
-                    case "$line" in
-                    %DEPENDS%)
-                        while read -r line && test -n "$line"; do
-                            line="${line%%[>=]*}"
-                            deps="${deps+$deps$NL}$line"
-                        done;;
-                    %PROVIDES%)
-                        while read -r line && test -n "$line"; do
-                            line="${line%%=*}"
-                            provs="${provs+$provs$NL}$line"
-                        done;;
-                    esac
-                done < "$pkg/depends"
-            fi
-            
-            if test -n "${groups+set}"; then
-                ! groups="$(grep -Fx "$groups" "$SCRATCH/search")"
-            fi
-            if {
-                test -z "${groups-}" &&
-                ! grep -qFx -- "$provs" "$SCRATCH/search"
-            } || grep -qFx -- "$provs" "$SCRATCH/resolved"; then
-                continue
-            fi
-            
-            pkgs="${pkgs+$pkgs$NL}$filename"
-            if test -n "${deps+set}"; then
-                new_deps="${new_deps+$new_deps$NL}$deps"
-            fi
-            printf '%s\n' "$provs" >> "$SCRATCH/resolved"
-            if test -n "${groups+set}"; then
-                printf '%s\n' "$groups" >> "$SCRATCH/resolved"
-            fi
-            total="$((total + size))"
-        done
+        mkdir "$SCRATCH/db/$db"
+        echo >&2 "Reading: $db"
+        tar xf "$DBPATH/sync/$db" -C "$SCRATCH/db/$db" -k
     done
     
-    sort -u -- "$SCRATCH/resolved" > "$SCRATCH/out"
-    mv "$SCRATCH/out" "$SCRATCH/resolved"
-    
-    unres="$(comm -23 -- "$SCRATCH/search" "$SCRATCH/resolved")"
-    if test -n "$unres"; then
-        IFS="$NL"
-        echo >&2 "Unresolved packages:" $unres
-        false
-    fi
-    
-    if test -n "${new_deps+set}"; then printf '%s\n' "$new_deps"; fi |
-    sort -u | comm -23 - -- "$SCRATCH/resolved" > "$SCRATCH/search"
-done
-echo >&2 "Total install size: $total"
-
-if test -z "${OFFLINE+set}" -a -n "${pkgs+set}"; then
-    IFS="$WS"
-    printf '%s\n' "$pkgs" |
-    $CX $WGET -c --directory-prefix="$CACHEDIR" -i -
-fi
-
-if test -n "${pkgs+set}"; then printf '%s\n' "$pkgs"; fi |
-sed 's:^.*/::' | {
-    cat << 'SH' > "$SCRATCH/script"
-        set -o errexit -o nounset
+    total=0
+    : > "$SCRATCH/resolved"
+    while test -s "$SCRATCH/search"; do
+        echo >&2 "Resolving:" $(cat "$SCRATCH/search")
+        unset new_deps
         
-        INSTALL="$FS/var/lib/pkgbundle/install.d"
-        mkdir -p "$INSTALL"
-        while read -r line; do
-            echo "$line" >&2
-            tar xf "$CACHEDIR/$line" --force-local -C "$FS" -k --exclude .CHANGELOG
-            pkgname="$(sed -n 's/^pkgname = //p' -- "$FS/.PKGINFO")"
-            rm -- "$FS/.PKGINFO"
-            if test -e "$FS/.INSTALL"; then
-                mv -- "$FS/.INSTALL" "$INSTALL/$pkgname"
-            fi
+        IFS="$NL"
+        for repo in ${REPOS-}; do
+            db="${repo##*/}"
+            echo >&2 "  Searching: $db"
+            repo="$(printf '%s\n' "$repo" | sed 's:[^/]*$::')"
+            
+            for pkg in "$SCRATCH/db/$db"/*; do
+                unset provs groups deps filename
+                size=0
+                
+                while read -r line; do
+                    case "$line" in
+                    %FILENAME%)
+                        while read -r line && test -n "$line"; do
+                            filename="${filename+$filename$NL}$repo$line"
+                        done;;
+                    %NAME%)
+                        while read -r line && test -n "$line"; do
+                            provs="${provs+$provs$NL}$line"
+                        done;;
+                    %GROUPS%)
+                        while read -r line && test -n "$line"; do
+                            groups="${groups+$groups$NL}$line"
+                        done;;
+                    %ISIZE%)
+                        while read -r line && test -n "$line"; do
+                            size="$((size + line))"
+                        done;;
+                    esac
+                done < "$pkg/desc"
+                
+                if test -e "$pkg/depends"; then
+                    while read -r line; do
+                        case "$line" in
+                        %DEPENDS%)
+                            while read -r line && test -n "$line"; do
+                                line="${line%%[>=]*}"
+                                deps="${deps+$deps$NL}$line"
+                            done;;
+                        %PROVIDES%)
+                            while read -r line && test -n "$line"; do
+                                line="${line%%=*}"
+                                provs="${provs+$provs$NL}$line"
+                            done;;
+                        esac
+                    done < "$pkg/depends"
+                fi
+                
+                if test -n "${groups+set}"; then
+                    ! groups="$(grep -Fx "$groups" "$SCRATCH/search")"
+                fi
+                if {
+                    test -z "${groups-}" &&
+                    ! grep -qFx -- "$provs" "$SCRATCH/search"
+                } || grep -qFx -- "$provs" "$SCRATCH/resolved"; then
+                    continue
+                fi
+                
+                pkgs="${pkgs+$pkgs$NL}$filename"
+                if test -n "${deps+set}"; then
+                    new_deps="${new_deps+$new_deps$NL}$deps"
+                fi
+                printf '%s\n' "$provs" >> "$SCRATCH/resolved"
+                if test -n "${groups+set}"; then
+                    printf '%s\n' "$groups" >> "$SCRATCH/resolved"
+                fi
+                total="$((total + size))"
+            done
         done
         
-        if test -n "$BUNDLE"; then
-            echo "Creating $BUNDLE" >&2
-            cd "$FS"
-            find . | cpio -o -H newc
+        sort -u -- "$SCRATCH/resolved" > "$SCRATCH/out"
+        mv "$SCRATCH/out" "$SCRATCH/resolved"
+        
+        unres="$(comm -23 -- "$SCRATCH/search" "$SCRATCH/resolved")"
+        if test -n "$unres"; then
+            IFS="$NL"
+            echo >&2 "Unresolved packages:" $unres
+            false
         fi
-SH
-    
-    IFS="$WS"
-    FS="$FS" CACHEDIR="$CACHEDIR"  BUNDLE="${BUNDLE-}" $FSX sh \
-        "$SCRATCH/script"
-} | if test -n "${BUNDLE+set}"; then
-    gzip -c > "$BUNDLE"
-fi
+        
+        if test -n "${new_deps+set}"; then printf '%s\n' "$new_deps"; fi |
+        sort -u | comm -23 - -- "$SCRATCH/resolved" > "$SCRATCH/search"
+    done
+    echo >&2 "Total install size: $total"
+}
 
-if test -n "${DESTDIR+set}"; then
-    unset FS
+stage() {
+    if test -n "${pkgs+set}"; then printf '%s\n' "$pkgs"; fi |
+    sed 's:^.*/::' | {
+cat << 'SH' > "$SCRATCH/script"
+set -o errexit -o nounset
+
+INSTALL="$FS/var/lib/pkgbundle/install.d"
+mkdir -p "$INSTALL"
+while read -r line; do
+    echo "$line" >&2
+    tar xf "$CACHEDIR/$line" --force-local -C "$FS" -k --exclude .CHANGELOG
+    pkgname="$(sed -n 's/^pkgname = //p' -- "$FS/.PKGINFO")"
+    rm -- "$FS/.PKGINFO"
+    if test -e "$FS/.INSTALL"; then
+        mv -- "$FS/.INSTALL" "$INSTALL/$pkgname"
+    fi
+done
+
+if test -n "$BUNDLE"; then
+    echo "Creating $BUNDLE" >&2
+    cd "$FS"
+    find . | cpio -o -H newc
 fi
+SH
+        
+        IFS="$WS"
+        FS="$FS" CACHEDIR="$CACHEDIR"  BUNDLE="${BUNDLE-}" $FSX sh \
+            "$SCRATCH/script"
+    } | if test -n "${BUNDLE+set}"; then
+        gzip -c > "$BUNDLE"
+    fi
+}
+
+shell_init() {
+    set -o errexit -o nounset
+NL='
+'
+    TAB="$(printf '\t')"
+    WS=" $TAB$NL"
+}
+
+main "$@"
