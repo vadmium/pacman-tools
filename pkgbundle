@@ -4,21 +4,26 @@
 # to allow for cross-installation of 64-bit OS from 32-bit-only environment.
 
 # Requirements:
-# tar,wget,sed,grep,comm,sort,uniq,mktemp,sh
+# tar,sed,grep,comm,sort,uniq,mktemp,sh
 # Optional:
+# wget: online
 # xz-utils: xz packages
-# uname: architecture default
+# uname: architecture default detection
 # cpio: building bundle
-# sudo: installing root filesystem
-# sudo: cache access
-# Recommended: fakeroot: building bundle 
-# Recommended: sudo: installing root filesystem
-# Recommended: sudo: cache access
+# sudo: installing root filesystem alternative
+# sudo: cache access alternative
+# bash: makepkg
+# fakeroot: building bundle alternative
 
 # TODO:
 # Try cpio instead of tar, and pax instead of both; configurable or automatically tried
-# check remote server for newer versions of files (eg package database)
-# cross makepkg? otherwise, only really build "any" arch packages
+
+SUDO="sudo -E --"
+WGET="wget"
+#WGET="wget --no-verbose"
+PACMAN_VER=v3.5.3
+MAKEPKG_IN="https://projects.archlinux.org/pacman.git/plain"
+MAKEPKG_IN="$MAKEPKG_IN/scripts/makepkg.sh.in?id=$PACMAN_VER"
 
 main() {
     shell_init
@@ -40,61 +45,49 @@ main() {
     if test -z "${arch+set}"; then
         arch="$(uname -m)"
     fi
-    if test -n "${REPOS+set}"; then
-        REPOS="$(printf '%s\n' "$REPOS" | sed s/'$arch'/"$arch"/g)"
-    fi
     
-    unset SCRATCH FS
-    
-    IFS="$WS"
-    $CX mkdir -p "$DBPATH"
-    echo "$$" | LOCK="$DBPATH/db.lck" $CX sh -o noclobber -c 'cat > "$LOCK"'
+    unset LOCK SCRATCH FS
     trap onexit EXIT
-    
-    $FSX mkdir "${DESTDIR-stage}"
-    FS="${DESTDIR-stage}"
-    
-    $CX mkdir -p "$DBPATH/sync"
-    $CX mkdir -p "$CACHEDIR"
-    
-    if test -z "${OFFLINE+set}" -a -n "${REPOS+set}"; then
-        printf '%s\n' "$REPOS" |
-        $CX $WGET --timestamping --directory-prefix="$DBPATH/sync" -i -
-    fi
-    
     SCRATCH="$(mktemp --tmpdir --directory pkgb.XXXXXXXXXX)"
     
-    resolve_packages
+    total=0
+    if test -n "${BUILD+set}"; then
+        build_packages
+    fi
+    if test -n "${INSTALL:+set}"; then
+        get_packages
+    fi
     
-    if test -z "${OFFLINE+set}" -a -n "${pkgs+set}"; then
+    NPKGS="$(printf '%s\n' "$pkgs" | wc -l)"
+    echo >&2 "Number of packages: $NPKGS"
+    echo >&2 "Bytes to be installed (from repositories): $total"
+    
+    if test -z "${OFFLINE+set}" -a -n "${dl+set}"; then
         IFS="$WS"
-        printf '%s\n' "$pkgs" |
+        printf '%s\n' "$dl" |
         $CX $WGET -c --directory-prefix="$CACHEDIR" -i -
     fi
     
     stage
-    
-    if test -n "${DESTDIR+set}"; then
-        unset FS
-    fi
 }
 
 onexit() {
     IFS="$WS"
     echo >&2 "cleaning up"
-    $CX rm "$DBPATH/db.lck"
+    if test -n "${LOCK+set}"; then
+        $CX rm -- "$LOCK"
+    fi
     if test -n "${SCRATCH+set}"; then
         rm -rf "$SCRATCH"
     fi
     if test -n "${FS+set}"; then
-        $FSX rm -rf "$FS"
+        if test -z "${DESTDIR+set}"; then
+            $FSX rm -rf -- "$FS"
+        else
+            $FSX rm -f -- "$FS/.PKGINFO" "$FS/.INSTALL"
+        fi
     fi
 }
-
-SUDO="sudo -E --"
-
-WGET="wget"
-#WGET="wget --no-verbose"
 
 get_options() {
     while test "$#" -gt 0; do
@@ -130,8 +123,8 @@ get_options() {
             INSTALL="${INSTALL+$INSTALL$NL}$(printf '%s\n' $2)"
             shift 2;;
         build)
-            echo "Not implemented" >&2
-            false
+            IFS="$WS,"
+            BUILD="${BUILD+$BUILD$NL}$(printf '%s\n' $2)"
             shift 2;;
         arch)
             arch="$2"
@@ -158,7 +151,7 @@ get_options() {
         esac
     done
     
-    if test -z "${INSTALL+set}"; then
+    if test -z "${INSTALL+set}" -a -z "${BUILD+set}"; then
         echo >&2 "No packages specified (Try \"help\")"
         false
     fi
@@ -286,6 +279,103 @@ ini_line() {
     return 1
 }
 
+build_packages() {
+    get_makepkg
+    
+    IFS="$NL"
+    for build in "$BUILD"; do
+        if test -d "$build"; then
+            build="$build/PKGBUILD"
+        fi
+        dir="${build%/*}"
+        
+        # Closing $() bracket must be after heredoc or Bash gets confused
+        pkg="$dir/$(build="$build" CARCH="$arch" \
+            bash -o errexit -o nounset << 'BASH'
+            source "$build"
+            for arch in "${arch[@]-}"; do
+                if test "$arch" = any; then
+                    break
+                fi
+            done
+            if test "$arch" != any; then
+                arch="$CARCH"
+            fi
+            printf '%s\n' "$pkgname-$pkgver-$pkgrel-$arch.pkg.tar.xz"
+BASH
+        )"
+        
+        if test ! -e "$pkg"; then (
+            cd -- "$dir"
+            PATH="${MAKEPKG_PATH}" \
+                $MAKEPKG --ignorearch --rmdeps -p "${build##*/}"
+        ) fi
+        pkgs="${pkgs+$pkgs$NL}$pkg"
+        # TODO: add to $total and get depends from package file instead
+        INSTALL="${INSTALL+$INSTALL$NL}$(
+            build="$build" bash -o errexit -o nounset << 'BASH'
+            source "$build"
+            printf '%s\n' "${depends[@]-}"
+BASH
+        )"
+    done
+}
+
+get_makepkg() {
+    if MAKEPKG="$(command -v makepkg)"; then
+        MAKEPKG_PATH="$PATH"
+        return
+    fi
+    
+    if test ! -x makepkg; then
+        $WGET -c -- "$MAKEPKG_IN"
+        MAKEPKG_IN="${MAKEPKG_IN##*/}"
+        sed -f - << SED -- "$MAKEPKG_IN" > makepkg
+            s|@BASH_SHELL[@]|/bin/bash|g
+            s|@configure_input[@]|Generated from $MAKEPKG_IN by pkgbundle|g
+            s|@localedir[@]|/dev/null|g
+            s|@PACKAGE_VERSION[@]|$PACMAN_VER|g
+            s|@sysconfdir[@]|/dev/null|g
+            s|@BUILDSCRIPT[@]|PKGBUILD|g
+            s|@DUPATH[@]|du|g
+            s|@SEDINPLACE[@]|sed -i|g
+SED
+        chmod +x makepkg
+    fi
+    if test ! -e makepkg.conf; then
+        cat > makepkg.conf << CONF
+            BUILDENV=(fakeroot)
+            PKGEXT=".pkg.tar.xz"
+CONF
+    fi
+    if test ! -e bsdtar; then
+        ln -s "$(command -v tar)" bsdtar
+    fi
+    MAKEPKG_PATH="${PATH+$PATH:}$(pwd)"
+    MAKEPKG="makepkg$NL--config$NL$(pwd)/makepkg.conf"
+}
+
+get_packages() {
+    if test -n "${REPOS+set}"; then
+        REPOS="$(printf '%s\n' "$REPOS" | sed s/'$arch'/"$arch"/g)"
+    fi
+    
+    IFS="$WS"
+    $CX mkdir -p "$DBPATH"
+    echo "$$" | LOCK="$DBPATH/db.lck" $CX sh -o noclobber -c 'cat > "$LOCK"'
+    LOCK="$DBPATH/db.lck"
+    
+    $CX mkdir -p "$DBPATH/sync"
+    $CX mkdir -p "$CACHEDIR"
+    
+    if test -z "${OFFLINE+set}" -a -n "${REPOS+set}"; then
+        printf '%s\n' "$REPOS" |
+        $CX $WGET --timestamping --directory-prefix="$DBPATH/sync" -i -
+    fi
+    
+    resolve_packages
+}
+
 resolve_packages() {
     if test -n "${INSTALL+set}"; then printf '%s\n' "$INSTALL"; fi |
     sort -u > "$SCRATCH/search"
@@ -299,7 +389,6 @@ resolve_packages() {
         tar xf "$DBPATH/sync/$db" -C "$SCRATCH/db/$db" -k
     done
     
-    total=0
     : > "$SCRATCH/resolved"
     while test -s "$SCRATCH/search"; do
         echo >&2 "Resolving:" $(cat "$SCRATCH/search")
@@ -363,7 +452,7 @@ resolve_packages() {
                     continue
                 fi
                 
-                pkgs="${pkgs+$pkgs$NL}$filename"
+                dl="${dl+$dl$NL}$filename"
                 if test -n "${deps+set}"; then
                     new_deps="${new_deps+$new_deps$NL}$deps"
                 fi
@@ -388,39 +477,60 @@ resolve_packages() {
         if test -n "${new_deps+set}"; then printf '%s\n' "$new_deps"; fi |
         sort -u | comm -23 - -- "$SCRATCH/resolved" > "$SCRATCH/search"
     done
-    echo >&2 "Total install size: $total"
+    
+    if test -n "${dl+set}"; then
+        pkgs="${pkgs+$pkgs$NL}$(printf '%s\n' "$dl" |
+            sed 's:^.*/':"$CACHEDIR"/:)"
+    fi
 }
 
 stage() {
-    if test -n "${pkgs+set}"; then printf '%s\n' "$pkgs"; fi |
-    sed 's:^.*/::' | {
-cat << 'SH' > "$SCRATCH/script"
-set -o errexit -o nounset
-
-INSTALL="$FS/var/lib/pkgbundle/install.d"
-mkdir -p "$INSTALL"
-while read -r line; do
-    echo "$line" >&2
-    tar xf "$CACHEDIR/$line" --force-local -C "$FS" -k --exclude .CHANGELOG
-    pkgname="$(sed -n 's/^pkgname = //p' -- "$FS/.PKGINFO")"
-    rm -- "$FS/.PKGINFO"
-    if test -e "$FS/.INSTALL"; then
-        mv -- "$FS/.INSTALL" "$INSTALL/$pkgname"
+    IFS="$WS"
+    if test -n "${DESTDIR+set}"; then
+        $FSX mkdir -p "${DESTDIR-stage}"
+        FS="$DESTDIR"
+    else
+        $FSX mkdir stage
+        FS=stage
     fi
-done
-
-if test -n "$BUNDLE"; then
-    echo "Creating $BUNDLE" >&2
-    cd "$FS"
-    find . | cpio -o -H newc
-fi
+    
+    rm -f -- "$SCRATCH/status"
+    if test -n "${pkgs+set}"; then printf '%s\n' "$pkgs"; fi | {
+    cat << 'SH' > "$SCRATCH/script"
+        set -o errexit -o nounset
+        
+        INSTALL="$FS/var/lib/pkgbundle/install"
+        mkdir -p -- "$INSTALL"
+        n=0
+        while read -r line; do
+            n="$((n + 1))"
+            echo "$n/$NPKGS Unpacking $line" >&2
+            tar xf "$line" --force-local -C "$FS" -k --exclude .CHANGELOG
+            pkgname="$(sed -n 's/^pkgname = //p' -- "$FS/.PKGINFO")"
+            rm -- "$FS/.PKGINFO"
+            if test -e "$FS/.INSTALL"; then
+                mv -- "$FS/.INSTALL" "$INSTALL/$pkgname"
+            fi
+        done
+        
+        if test -n "$BUNDLE"; then
+            echo "Creating $BUNDLE" >&2
+            cd -- "$FS"
+            find . | cpio -o -H newc
+        fi
 SH
         
         IFS="$WS"
-        FS="$FS" CACHEDIR="$CACHEDIR"  BUNDLE="${BUNDLE-}" $FSX sh \
-            "$SCRATCH/script"
+        FS="$FS" CACHEDIR="$CACHEDIR"  BUNDLE="${BUNDLE-}" NPKGS="$NPKGS" \
+            $FSX sh "$SCRATCH/script"
+        : > "$SCRATCH/status"
     } | if test -n "${BUNDLE+set}"; then
         gzip -c > "$BUNDLE"
+    fi
+    test -e "$SCRATCH/status"
+    
+    if test -n "${DESTDIR+set}"; then
+        unset FS
     fi
 }
 
