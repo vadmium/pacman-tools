@@ -17,6 +17,9 @@
 
 # TODO:
 # Try cpio instead of tar, and pax instead of both; configurable or automatically tried
+# check remote server for newer versions of files (eg package database)
+# cross makepkg? otherwise, only really build "any" arch packages
+# Run a script or allow editing of the filesystem before creating a bundle
 
 SUDO="sudo -E --"
 WGET="wget"
@@ -499,7 +502,7 @@ stage() {
     cat << 'SH' > "$SCRATCH/script"
         set -o errexit -o nounset
         
-        INSTALL="$FS/var/lib/pkgbundle/install"
+        INSTALL="$FS/var/spool/pkgbundle/install"
         mkdir -p -- "$INSTALL"
         n=0
         while read -r line; do
