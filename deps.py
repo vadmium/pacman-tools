@@ -67,6 +67,64 @@ class Deps(object):
             frags1.extend(f.split(subs[1]))
         return self.origin().join(frags1)
 
+import os
+from os.path import (isabs, islink)
+
+def realpath(path):
+    if isinstance(path, bytes):
+        sep = b'/'
+        dot = b'.'
+        dotdot = b'..'
+        getcwd = os.getcwdb
+    else:
+        sep = '/'
+        dot = '.'
+        dotdot = '..'
+        getcwd = os.getcwd
+    root = sep
+    
+    # The path is broken into components. Each component may resolve to a
+    # sub-path, and its components may require further resolution.
+    
+    # Stack of component iterators for each sub-path being resolved
+    unres = [iter(path.split(sep))]
+    if not isabs(path):
+        unres.append(iter(getcwd().split(sep)))
+    
+    links = []  # Stack of links names of sub-paths being resolved
+    resolved = []  # Fully resolved path components
+    while unres:
+        while True:
+            try:
+                component = next(unres[-1])
+            except StopIteration:
+                break
+            if not component or component == dot:
+                continue
+            if component == dotdot:
+                if resolved:
+                    resolved.pop()
+                continue
+            
+            resolved.append(component)
+            dir = root + sep.join(resolved)
+            if islink(dir):
+                if dir in links:
+                    while unres:
+                        resolved.extend(unres.pop())
+                    return root + sep.join(resolved)
+                resolved.pop()
+                links.append(dir)
+                target = os.readlink(dir)
+                unres.append(iter(target.split(sep)))
+                if isabs(target):
+                    resolved = []
+        
+        unres.pop()
+        if links:
+            links.pop()
+    return root + sep.join(resolved)
+
 class Thunk:
     def __init__(self, func, *args, **kw):
         self.func = func
