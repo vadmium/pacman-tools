@@ -63,7 +63,7 @@ main() {
     echo >&2 "Bytes to be installed (from repositories): $total"
     
     if test -z "${OFFLINE+set}" -a -n "${dl+set}"; then
-        IFS="$WS"
+        unset IFS
         printf '%s\n' "$dl" |
         $CX $WGET -c --directory-prefix="$CACHEDIR" -i -
     fi
@@ -72,13 +72,13 @@ main() {
 }
 
 onexit() {
-    IFS="$WS"
+    unset IFS
     echo >&2 "cleaning up"
     if test -n "${LOCK+set}"; then
         $CX rm -- "$LOCK"
     fi
     if test -n "${SCRATCH+set}"; then
-        rm -rf "$SCRATCH"
+        rm -rf -- "$SCRATCH"
     fi
     if test -n "${FS+set}"; then
         if test -z "${DESTDIR+set}"; then
@@ -360,7 +360,7 @@ get_packages() {
         REPOS="$(printf '%s\n' "$REPOS" | sed s/'$arch'/"$arch"/g)"
     fi
     
-    IFS="$WS"
+    unset IFS
     $CX mkdir -p "$DBPATH"
     echo "$$" | LOCK="$DBPATH/db.lck" $CX sh -o noclobber -c 'cat > "$LOCK"'
     LOCK="$DBPATH/db.lck"
@@ -485,7 +485,7 @@ resolve_packages() {
 }
 
 stage() {
-    IFS="$WS"
+    unset IFS
     if test -n "${DESTDIR+set}"; then
         $FSX mkdir -p "${DESTDIR-stage}"
         FS="$DESTDIR"
@@ -520,7 +520,7 @@ stage() {
         fi
 SH
         
-        IFS="$WS"
+        unset IFS
         FS="$FS" CACHEDIR="$CACHEDIR"  BUNDLE="${BUNDLE-}" NPKGS="$NPKGS" \
             $FSX sh "$SCRATCH/script"
         : > "$SCRATCH/status"

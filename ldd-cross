@@ -1,8 +1,7 @@
 #! /usr/bin/env python2
+from __future__ import print_function
 
 # Reference: https://www.sco.com/developers/gabi/latest/contents.html
-
-from __future__ import print_function
 
 from sys import (argv, stdout)
 from struct import Struct
