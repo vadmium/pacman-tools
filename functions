@@ -1,0 +1,69 @@
+FUNCTIONS="$BASEDIR/lib/initcpio/$FUNCTIONS"
+HOOKDIR="/lib/initcpio/$HOOKDIR"
+INSTDIR="$BASEDIR/lib/initcpio/$INSTDIR"
+PRESETDIR="$BASEDIR/etc/$PRESETDIR"
+
+# Run the "functions" script that was originally intended
+. "$FUNCTIONS"
+
+# Catch naive references to host file system; specifically the
+# "kernel26.preset" script refers to the "kernel26.kver" script with
+# an absolute name
+source() {
+    case "$1" in
+    /*) command source "$BASEDIR$@";;
+    *) command source "$@";;
+    esac
+}
+
+# Force the "ldd" program to search the target instead of host
+ldd() {
+    ldd-cross "$BASEDIR" "$@"
+}
+
+# Substitute long "modprobe -RS" option names because the short ones
+# aren't available in older versions
+xargs() {
+    if test "$1" != modprobe; then
+        command xargs "$@"
+        return
+    fi
+    
+    # Despite all this older "modprobe" versions are apparently unaware of
+    # the existence of compressed modules
+    
+    local -a opts=()
+    for arg; do
+        case "$arg" in
+        -*RS) opts=("${opts[@]}" "${arg%RS}" --resolve-alias
+            --set-version);;
+        *) opts[${#opts[@]}]="$arg";;
+        esac
+    done
+    command xargs "${opts[@]}"
+}
+
+# Use standard cpio if available
+bsdcpio() {
+    if command -v > /dev/null cpio; then
+        cpio "$@"
+    else
+        command bsdcpio "$@"
+    fi
+}
+
+findmnt() {
+    if command -v > /dev/null findmnt; then
+        test "$1" = -uno -a "$2" = fstype
+        
+        local match target fstype
+        while read _ target fstype _; do
+            if test "$target" = "$3"; then
+                match="$fstype"
+            fi
+        done < /proc/mounts
+        echo "$match"
+    else
+        command findmnt "$@"
+    fi
+}
