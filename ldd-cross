@@ -4,16 +4,11 @@ from __future__ import print_function
 # Reference: https://www.sco.com/developers/gabi/latest/contents.html
 
 from sys import (argv, stdout)
-from struct import Struct
 import os
 from stat import (S_ISUID, S_ISGID)
 from glob import iglob
+import elf
 from lib import transplant
-
-try:
-    from io import SEEK_CUR
-except ImportError:
-    SEEK_CUR = 1
 
 def main():
     (_, root) = argv[:2]
@@ -57,7 +52,7 @@ class ElfResolve:
                     self.parse_dynamic(seg)
     
     def ph_entries(self):
-        with ElfFile(self.name) as self.elf:
+        with elf.FileRef(self.name) as self.elf:
             self.origin = Thunk(self.get_origin)
             
             if self.elf.phoff:
@@ -79,9 +74,9 @@ class ElfResolve:
                 continue
             
             (offset,) = self.elf.read(self.elf.class_type)
-            (self.dynamic, strtab) = self.get_dynamic()
+            self.dynamic = self.get_dynamic()
             
-            raw_needed = self.elf.read_str(strtab, offset)
+            raw_needed = self.elf.read_str(self.dynamic.strtab, offset)
             needed = self.sub_origin(raw_needed)
             
             if "/" not in needed:
@@ -104,7 +99,7 @@ class ElfResolve:
                 self.needed_seen.add(needed)
     
     def search_paths(self):
-        if not hasattr(self.dynamic, "runpath"):
+        if not self.dynamic.runpath:
             for dirs in self.get_rpath():
                 for dir in dirs.split(":"):
                     yield dir
@@ -143,12 +138,13 @@ class ElfResolve:
                 list = []
             elfs = set()
             for file in list:
-                try:
-                    probe = ElfFile(os.path.join(rebased, file))
-                except (EnvironmentError, ValueError):
-                    continue
-                
-                with probe:
+                with Cleanup() as cleanup:
+                    try:
+                        probe = cleanup.add(
+                            elf.FileRef(os.path.join(rebased, file)))
+                    except (EnvironmentError, ValueError):
+                        continue
+                    
                     if not self.elf.matches(probe):
                         continue
                     
@@ -254,212 +250,6 @@ class LdConfigFile:
     
     SEPS = ": \t\r\n,"
 
-class ElfFile:
-    EI_NIDENT = 16
-    EI_MAG = 0
-    EI_CLASS = 4
-    EI_DATA = 5
-    EI_OSABI = 7
-    EI_ABIVERSION = 8
-    
-    CLASS32 = 1
-    CLASS64 = 2
-    
-    DATA2LSB = 1
-    DATA2MSB = 2
-    
-    def __init__(self, file):
-        self.file = open(file, mode="rb")
-        
-        try:
-            ident = self.file.read(self.EI_NIDENT)
-            
-            if not ident[self.EI_MAG:].startswith(b"\x7FELF"):
-                raise ValueError(
-                    "Unexpected ELF magic number identification")
-            
-            for (name, index) in dict(
-                elf_class=self.EI_CLASS, data=self.EI_DATA,
-                osabi=self.EI_OSABI, abiversion=self.EI_ABIVERSION
-            ).items():
-                setattr(self, name, byteat(ident, index))
-            
-            self.class_type = {self.CLASS32: "L", self.CLASS64: "Q"}[
-                self.elf_class]
-            self.enc = {self.DATA2LSB: "<", self.DATA2MSB: ">"}[self.data]
-            self.class_size = Struct(self.enc + self.class_type).size
-            
-            self.file.seek(+2, SEEK_CUR)
-            (self.machine, self.version) = self.read("HL")
-            self.file.seek(+self.class_size, SEEK_CUR)
-            (self.phoff, self.shoff, self.flags) = self.read(
-                self.class_type + self.class_type + "L")
-            self.file.seek(+2, SEEK_CUR)
-            (self.phentsize, self.phnum, self.shentsize, self.shnum,
-                self.shstrndx) = self.read("HHHHH")
-            
-        except:
-            self.file.close()
-            raise
-    
-    def __enter__(self):
-        return self
-    def __exit__(self, *exc):
-        return self.file.__exit__(*exc)
-    
-    def matches(self, elf):
-        # Ignore object file type field because it is unclear which types
-        # should match
-        return all(getattr(self, name) == getattr(elf, name) for name in (
-            "elf_class", "data", "osabi", "abiversion",
-            "machine", "version", "flags",
-        ))
-    
-    SHN_UNDEF = 0
-    SHN_XINDEX = 0xFFFF
-    
-    def getname(self, name):
-        if self.shstrndx == self.SHN_UNDEF:
-            return None
-        
-        self.file.seek(self.shoff + self.shentsize * self.shstrndx +
-            4 + 4 + self.class_size + self.class_size)
-        section = self.read(self.class_type + self.class_type)
-        
-        return self.read_str(section, name)
-    
-    PT_DYNAMIC = 2
-    PT_INTERP = 3
-    
-    DT_NEEDED = 1
-    DT_STRTAB = 5
-    DT_STRSZ = 10
-    DT_SONAME = 14
-    DT_RPATH = 15
-    DT_RUNPATH = 29
-    
-    def read_dynamic(self):
-        fields = {
-            self.DT_RPATH: "rpath", self.DT_RUNPATH: "runpath",
-            self.DT_SONAME: "soname",
-        }
-        dynamic = Record((name, []) for name in fields.values())
-        fields.update({self.DT_STRTAB: "strtab", self.DT_STRSZ: "strsz"})
-        for seg in self.ph_entries():
-            if seg.type != self.PT_DYNAMIC:
-                continue
-            
-            for tag in self.pt_dynamic_entries(seg):
-                try:
-                    name = fields[tag]
-                except LookupError:
-                    continue
-                (value,) = self.read(self.class_type)
-                try:
-                    field = getattr(dynamic, name)
-                except AttributeError:
-                    setattr(dynamic, name, value)
-                else:
-                    field.append(value)
-        
-        try:
-            end = dynamic.strtab
-        except AttributeError:
-            return (dynamic, None)
-        
-        try:
-            strsz = dynamic.strsz
-            end += strsz
-        except AttributeError:
-            strsz = None
-        
-        strtab = None
-        for seg in self.ph_entries():
-            if dynamic.strtab >= seg.vaddr and end <= seg.vaddr + seg.filesz:
-                new = dynamic.strtab - seg.vaddr + seg.offset
-                if strtab is not None and strtab != new:
-                    raise ValueError("Inconsistent mapping: 0x{:X}".format(
-                        dynamic.strtab))
-                strtab = new
-        
-        if strtab is None:
-            raise LookupError("No segment found for 0x{:X}".format(
-                dynamic.strtab))
-        
-        return (dynamic, (strtab, strsz))
-    
-    def read_dyn_list(self, get_dynamic, name):
-        (dynamic, strtab) = get_dynamic()
-        return list(self.read_str(strtab, offset)
-            for offset in getattr(dynamic, name))
-    
-    def read_dyn_str(self, get_dynamic, name):
-        (dynamic, strtab) = get_dynamic()
-        try:
-            return self.read_str(strtab, getattr(dynamic, name))
-        except AttributeError:
-            return None
-    
-    def read_str(self, segment, offset=None):
-        (start, size) = segment
-        
-        if offset is not None:
-            start += offset
-            if size is not None:
-                size -= offset
-        
-        self.file.seek(start)
-        str = bytearray()
-        while True:
-            if size is not None:
-                if size > 0:
-                    size -= 1
-                elif offset is not None:
-                    raise EOFError("Unterminated string at {0}".format(
-                        start))
-                else:
-                    break
-            
-            c = ord(self.file.read(1))
-            if not c:
-                break
-            str.append(c)
-        
-        return str.decode()
-    
-    def ph_entries(self):
-        ph_offset_offset = {self.CLASS32: 0, self.CLASS64: 4}[self.elf_class]
-        
-        for i in range(self.phnum):
-            self.file.seek(self.phoff + self.phentsize * i)
-            (type,) = self.read("L")
-            self.file.seek(+ph_offset_offset, SEEK_CUR)
-            (offset, vaddr) = self.read(self.class_type + self.class_type)
-            self.file.seek(+self.class_size, SEEK_CUR)
-            (filesz,) = self.read(self.class_type)
-            yield Record(type=type, offset=offset, vaddr=vaddr,
-                filesz=filesz)
-    
-    def pt_dynamic_entries(self, seg):
-        # Assume that the ".dynamic" _section_ is located at the start of the
-        # _segment_ identified by PT_DYNAMIC, otherwise you cannot find the
-        # _section_ (or the _DYNAMIC _symbol_ which labels it) from the
-        # program (segment) header alone.
-        
-        entsize = self.class_size + self.class_size
-        if seg.filesz % entsize:
-            raise NotImplementedError(
-                "Segment PT_DYNAMIC file size: {0}".format(seg.filesz))
-        
-        for i in range(seg.offset, seg.offset + seg.filesz, entsize):
-            self.file.seek(i)
-            (tag,) = self.read(self.class_type.lower())
-            yield tag
-    
-    def read(self, format):
-        s = Struct(self.enc + format)
-        return s.unpack(self.file.read(s.size))
-
 def is_privileged(name):
     return os.stat(name).st_mode & (S_ISUID | S_ISGID)
 
@@ -477,13 +267,6 @@ class Thunk:
         self.res = self.func(*self.args, **self.kw)
         del (self.func, self.args, self.kw)
         return self.res
-
-class Record:
-    def __init__(self, arg=dict(), **kw):
-        self.__dict__.update(arg, **kw)
-
-def byteat(bytes, index):
-    return ord(bytes[index:][:1])
 
 class Cleanup:
     def __init__(self):
