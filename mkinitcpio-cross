@@ -122,6 +122,7 @@ def depmod(basedir, preset):
         preset = os.path.join(basedir, "etc/mkinitcpio.d",
             preset + ".preset")
     
+    print("bash", preset)
     kver = check_output(
         "bash -o errexit -o nounset -c".split() + ["""
                 . "$1"
@@ -130,12 +131,14 @@ def depmod(basedir, preset):
         bufsize=-1,
         close_fds=True,
     )
+    print("kver", kver)
     
     if kver.startswith("/"):
         # Extract version from boot image; based on
         # https://github.com/glensc/file/blob/master/magic/Magdir/linux
         import struct
         vmlinuz = os.path.join(basedir, kver.lstrip("/"))
+        print("extract version", vmlinuz)
         with open(vmlinuz, "rb") as file:
             if random_read(file, 514, 4) != b"HdrS":
                 raise ValueError(
@@ -163,6 +166,7 @@ def depmod(basedir, preset):
                     break
                 kver.append(c)
         kver = kver.decode()
+        print("kver", kver)
     
     MODULE_DIR = "lib/modules"
     
@@ -193,8 +197,8 @@ def depmod(basedir, preset):
     
     verify_version(kver)
     
-    print("Scanning modules")
     dirname = os.path.join(basedir, MODULE_DIR, kver)
+    print("Scanning modules in", dirname)
     module_files = dict()
     for (dirpath, dirnames, filenames) in os.walk(dirname, followlinks=True):
         #~ print("Scanning", dirpath)
@@ -303,7 +307,8 @@ def depmod(basedir, preset):
     print("{0}/{0}".format(len(tlist)))
     
     print("Reading dependencies of modules")
-    for mod in tlist:
+    for (i, mod) in enumerate(tlist):
+        print("{0}/{1}".format(i, len(tlist)), end="\r")
         mod.deps = set()
         with mod.elf as file:
             strings = file.get_section(".strtab")
@@ -332,6 +337,7 @@ def depmod(basedir, preset):
                 #~ print('{0} needs "{1}": {2}'.format(mod.pathname, name,
                     #~ owner.pathname))
                 mod.deps.add(owner)
+    print("{0}/{0}".format(len(tlist)))
     
     raise NotImplementedError()
 
