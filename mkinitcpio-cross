@@ -178,7 +178,11 @@ def depmod(basedir, preset):
     
     # The following, including some functions called, based on "depmod" from
     # "module-init-tools" (apparently GPL 2)
-    Module = dict
+    
+    class Record:
+        def __init__(self, *args, **kw):
+            self.__dict__.update(dict(*args, **kw))
+    
     INDEX_PRIORITY_MIN = ~(~0 << 32)
     
     basedir = "/"; kver="2.6.32-31-generic"
@@ -206,10 +210,7 @@ def depmod(basedir, preset):
             with file:
                 pass
             
-            module_files.setdefault(f, Module(
-                deps=None, dep_list=[], order=INDEX_PRIORITY_MIN,
-                tables=None, elf=file, pathname=pathname,
-            ))
+            module_files.setdefault(f, Record(elf=file, pathname=pathname))
         
         i = 0
         while i < len(dirnames):
@@ -219,7 +220,7 @@ def depmod(basedir, preset):
                 i = i + 1
     
     print('Ordering modules by "modules.order"')
-    module_paths = dict((mod["pathname"], mod) for mod in module_files.values())
+    module_paths = dict((mod.pathname, mod) for mod in module_files.values())
     
     tlist = []
     file_name = os.path.join(dirname, "modules.order")
