@@ -3,11 +3,7 @@
 from collections import namedtuple
 from struct import Struct
 from contextlib import contextmanager
-
-try:
-    from io import SEEK_CUR
-except ImportError:
-    SEEK_CUR = 1
+from lib import SEEK_CUR
 
 class File:
     EI_NIDENT = 16

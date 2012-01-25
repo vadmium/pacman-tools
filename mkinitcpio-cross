@@ -17,7 +17,7 @@ from collections import namedtuple
 import gzip
 from io import BytesIO
 from contextlib import (closing, contextmanager)
-from lib import transplant
+from lib import (transplant, SEEK_CUR)
 import elf
 
 try:
