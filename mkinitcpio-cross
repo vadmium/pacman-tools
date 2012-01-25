@@ -239,12 +239,70 @@ def depmod(basedir, preset):
                 tlist.append(mod)
     tlist.extend(module_paths.values())
     
+    print("Reading symbols from modules")
+    symbol_owners = dict()
+    for (i, mod) in enumerate(tlist):
+        print("{0}/{1}".format(i, len(tlist)), end="\r")
+        with mod.elf as file:
+            sec = file.get_section("__ksymtab_strings")
+            if sec is not None:
+                (start, size) = sec
+                file.file.seek(start)
+                while True:
+                    while size:
+                        peek = ord(file.file.read(1))
+                        if peek:
+                            file.file.seek(-1, SEEK_CUR)
+                            break
+                        size -= 1
+                    if size <= 0:
+                        break
+                    
+                    sym = bytearray()
+                    while True:
+                        if size <= 0:
+                            raise EOFError(
+                                "Unterminated string in {0}".format(secname))
+                        size -= 1
+                        
+                        c = ord(file.file.read(1))
+                        if not c:
+                            break
+                        sym.append(c)
+                    
+                    # Original "depmod" places later modules at front of hash
+                    # table chain, so overwrite earlier modules here
+                    symbol_owners[bytes(sym)] = mod
+            
+            strings = file.get_section(".strtab")
+            syms = file.get_section(".symtab")
+            if strings is not None and syms is not None:
+                tables = dict((name, None) for name in (
+                    "pci", "usb", "ccw", "ieee1394", "pnp", "pnp_card",
+                    "input", "serio", "of",
+                ))
+                
+                for sym in file.symtab_entries(syms):
+                    name = file.read_str(strings, sym.name)
+                    try:
+                        name = strip(name, "__mod_", "_device_table")
+                    except ValueError:
+                        continue
+                    if name not in tables or tables[name] is not None:
+                        continue
+                    
+                    file.file.seek(
+                        file.shoff + file.shentsize * sym.shndx + 4)
+                    if file.read("L") == (file.SHT_NOBITS,):
+                        continue
+                    
+                    file.file.seek(+file.class_size + file.class_size,
+                        SEEK_CUR)
+                    (offset,) = file.read(file.class_type)
+                    tables[name] = offset + sym.value
+    print("{0}/{0}".format(len(tlist)))
+    
     print("Reading dependencies of modules")
-    for mod in tlist:
-        print(mod["pathname"], mod["elf"])
-        with mod["elf"]:
-            secname = "__ksymtab_strings"
-    #~ load_strings)(module, "__ksymtab_strings"
     
     raise NotImplementedError()
 
