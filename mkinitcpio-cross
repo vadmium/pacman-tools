@@ -186,6 +186,7 @@ def depmod(basedir, preset):
     
     verify_version(kver)
     
+    print("Scanning modules")
     dirname = os.path.join(basedir, MODULE_DIR, kver)
     module_files = dict()
     for (dirpath, dirnames, filenames) in os.walk(dirname, followlinks=True):
@@ -217,6 +218,7 @@ def depmod(basedir, preset):
             else:
                 i = i + 1
     
+    print('Ordering modules by "modules.order"')
     module_paths = dict((mod["pathname"], mod) for mod in module_files.values())
     
     tlist = []
@@ -233,6 +235,7 @@ def depmod(basedir, preset):
                 tlist.append(mod)
     tlist.extend(module_paths.values())
     
+    print("Reading dependencies of modules")
     for mod in tlist:
         print(mod["pathname"], mod["elf"])
         with mod["elf"]:

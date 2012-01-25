@@ -155,9 +155,7 @@ class File:
         dynamic = get_dynamic()
         return self.read_str(dynamic.strtab, getattr(dynamic, name))
     
-    def read_str(self, segment, offset=None):
-        (start, size) = segment
-        
+    def read_str(self, (start, size), offset=None):
         if offset is not None:
             start += offset
             if size is not None:
@@ -182,8 +180,6 @@ class File:
         
         return str.decode()
     
-    PhEntry = namedtuple("PhEntry", "type, offset, vaddr, filesz")
-    
     def ph_entries(self):
         ph_offset_offset = {self.CLASS32: 0, self.CLASS64: 4}[self.elf_class]
         
@@ -196,6 +192,8 @@ class File:
             (filesz,) = self.read(self.class_type)
             yield self.PhEntry(type=type, offset=offset, vaddr=vaddr,
                 filesz=filesz)
+    
+    PhEntry = namedtuple("PhEntry", "type, offset, vaddr, filesz")
     
     def pt_dynamic_entries(self, seg):
         # Assume that the ".dynamic" _section_ is located at the start of the
