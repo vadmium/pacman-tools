@@ -65,6 +65,21 @@ class File:
     SHN_UNDEF = 0
     SHN_XINDEX = 0xFFFF
     
+    SHT_NOBITS = 8
+    
+    def get_section(self, name):
+        for i in range(1, self.shnum):
+            self.file.seek(self.shoff + self.shentsize * i)
+            (n,) = self.read("H")
+            if self.getname(n) != name:
+                continue
+            
+            self.file.seek(self.shoff + self.shentsize * i +
+                4 + 4 + self.class_size + self.class_size)
+            return self.read(self.class_type + self.class_type)
+        else:
+            return None
+    
     def getname(self, name):
         if self.secnames is None:
             return None
@@ -198,9 +213,45 @@ class File:
             (tag,) = self.read(self.class_type.lower())
             yield tag
     
+    def symtab_entries(self, (start, size)):
+        # TODO: As tuple is to namedtuple, Struct is to -- NamedStruct!
+        entsize = 4 + 1 + 1 + 2 + self.class_size + self.class_size
+        offsets = {
+            self.CLASS32: dict(name=0, value=4,
+                info=4 + 4 + 4, shndx=4 + 4 + 4 + 1 + 1),
+            self.CLASS64: dict(name=0, info=4, shndx=4 + 1 + 1,
+                value=4 + 1 + 1 + 2),
+        }[self.elf_class]
+        formats = dict(name="L", value=self.class_type, info="B", shndx="H")
+        
+        if size % entsize:
+            raise NotImplementedError(
+                "\".symtab\" section size: {0}".format(size))
+        
+        for entry in range(start, start + size, entsize):
+            fields = dict()
+            
+            for (name, offset) in offsets.items():
+                self.file.seek(entry + offset)
+                (fields[name],) = self.read(formats[name])
+            
+            bind = fields["info"] >> 4
+            type = fields["info"] & 0xF
+            del fields["info"]
+            
+            yield self.SymtabEntry(bind=bind, type=type, **fields)
+    
+    SymtabEntry = namedtuple("SymtabEntry", "name, value, bind, type, shndx")
+    STB_WEAK = 2
+    STT_LOPROC = 13
+    
     def read(self, format):
         s = Struct(self.enc + format)
         return s.unpack(self.file.read(s.size))
+    
+    EM_SPARC = 2
+    EM_SPARCV9 = 43
+    STT_SPARC_REGISTER = STT_LOPROC
 
 class FileRef:
     def __init__(self, filename):
