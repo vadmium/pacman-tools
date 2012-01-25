@@ -188,7 +188,7 @@ def depmod(basedir, preset):
     
     INDEX_PRIORITY_MIN = ~(~0 << 32)
     
-    basedir = "/"; kver="2.6.32-31-generic"
+    #~ basedir = "/"; kver="2.6.32-31-generic"
     skipchars = len(basedir)
     
     verify_version(kver)
@@ -245,10 +245,6 @@ def depmod(basedir, preset):
         with mod["elf"]:
             secname = "__ksymtab_strings"
     #~ load_strings)(module, "__ksymtab_strings"
-    
-    
-    #~ for mod in tlist:
-        #~ print(mod, mod["file"].file)
     
     raise NotImplementedError()
 
