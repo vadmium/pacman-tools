@@ -303,6 +303,35 @@ def depmod(basedir, preset):
     print("{0}/{0}".format(len(tlist)))
     
     print("Reading dependencies of modules")
+    for mod in tlist:
+        mod.deps = set()
+        with mod.elf as file:
+            strings = file.get_section(".strtab")
+            syms = file.get_section(".symtab")
+            if strings is None or syms is None:
+                print('{0}: no ".strtab" or ".symtab"'.format(mod.pathname))
+                continue
+            
+            sparc = file.machine in (file.EM_SPARC, file.EM_SPARCV9)
+            for sym in file.symtab_entries(syms):
+                if (sym.shndx != file.SHN_UNDEF or
+                sparc and sym.type == file.STT_SPARC_REGISTER):
+                    continue
+                
+                name = file.read_str(strings, sym.name)
+                try:
+                    lookup = strip(name, ".")
+                except ValueError:
+                    lookup = name
+                
+                try:
+                    owner = symbol_owners[lookup]
+                except LookupError:
+                    continue
+                
+                #~ print('{0} needs "{1}": {2}'.format(mod.pathname, name,
+                    #~ owner.pathname))
+                mod.deps.add(owner)
     
     raise NotImplementedError()
 
