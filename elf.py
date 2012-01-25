@@ -45,7 +45,14 @@ class File:
             self.class_type + self.class_type + "L")
         self.file.seek(+2, SEEK_CUR)
         (self.phentsize, self.phnum, self.shentsize, self.shnum,
-            self.shstrndx) = self.read("HHHHH")
+            shstrndx) = self.read("HHHHH")
+        
+        if shstrndx == self.SHN_UNDEF:
+            self.secnames = None
+        else:
+            self.file.seek(self.shoff + self.shentsize * shstrndx +
+                4 + 4 + self.class_size + self.class_size)
+            self.secnames = self.read(self.class_type + self.class_type)
     
     def matches(self, elf):
         # Ignore object file type field because it is unclear which types
@@ -59,14 +66,10 @@ class File:
     SHN_XINDEX = 0xFFFF
     
     def getname(self, name):
-        if self.shstrndx == self.SHN_UNDEF:
+        if self.secnames is None:
             return None
-        
-        self.file.seek(self.shoff + self.shentsize * self.shstrndx +
-            4 + 4 + self.class_size + self.class_size)
-        section = self.read(self.class_type + self.class_type)
-        
-        return self.read_str(section, name)
+        else:
+            return self.read_str(self.secnames, name)
     
     PT_DYNAMIC = 2
     PT_INTERP = 3
