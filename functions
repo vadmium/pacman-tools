@@ -6,15 +6,7 @@ PRESETDIR="$BASEDIR/etc/$PRESETDIR"
 # Run the "functions" script that was originally intended
 . "$FUNCTIONS"
 
-# Catch naive references to host file system; specifically the
-# "kernel26.preset" script refers to the "kernel26.kver" script with
-# an absolute name
-source() {
-    case "$1" in
-    /*) command source "$BASEDIR$@";;
-    *) command source "$@";;
-    esac
-}
+. source-transplant.sh
 
 # Force the "ldd" program to search the target instead of host
 ldd() {
