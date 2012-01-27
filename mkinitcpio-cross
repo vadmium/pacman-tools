@@ -24,7 +24,7 @@ from lib import (transplant, SEEK_CUR)
 import elf
 
 try:
-    from subprocess import check_output
+    from subprocess import (check_output, CalledProcessError)
 except ImportError:
     def check_output(proc_args, *popen_args, **kw):
         proc = subprocess.Popen(proc_args, *popen_args,
@@ -123,14 +123,20 @@ def depmod(basedir, preset):
             preset + ".preset")
     
     print("bash", preset)
-    kver = check_output(
-        "bash -o errexit -o nounset -c".split() + ["""
-                . "$1"
-                printf '%s' "$ALL_kver"
-            """, "kver", preset],
-        bufsize=-1,
-        close_fds=True,
-    )
+    try:
+        kver = check_output(
+            "bash -o errexit -o nounset -c".split() + ["""
+                    BASEDIR="$2"
+                    . source-transplant.sh
+                    . "$1"
+                    printf '%s' "$ALL_kver"
+                """, "kver", preset, basedir],
+            bufsize=-1,
+            close_fds=True,
+        )
+    except CalledProcessError as e:
+        raise SystemExit(
+            "Bash failed with exit status {}".format(e.returncode))
     print("kver", kver)
     
     if kver.startswith("/"):
