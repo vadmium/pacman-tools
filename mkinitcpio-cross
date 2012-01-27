@@ -4,6 +4,9 @@ from __future__ import print_function
 """
 Arch Linux mkinitcpio command without using chroot to allow for cross-
 installation of 64-bit OS from 32-bit-only environment.
+
+Requirements:
+bash: parse mkinitcpio preset file
 """
 
 import sys
@@ -16,7 +19,7 @@ import subprocess
 from collections import namedtuple
 import gzip
 from io import BytesIO
-from contextlib import (closing, contextmanager)
+from contextlib import closing
 from lib import (transplant, SEEK_CUR)
 import elf
 
@@ -222,7 +225,7 @@ def depmod(basedir, preset):
     print('Ordering modules by "modules.order"')
     module_paths = dict((mod.pathname, mod) for mod in module_files.values())
     
-    tlist = []
+    tlist = list()
     file_name = os.path.join(dirname, "modules.order")
     if os.path.exists(file_name):
         with open(file_name, "r") as modorder:
@@ -271,6 +274,7 @@ def verify_version(version):
 # The remaining code is not part of the GPL 2 "depmod" port
 
 class Context:
+    """A dummy context manager that does nothing special"""
     def __init__(self, arg=None):
         self.arg = arg
     def __enter__(self):

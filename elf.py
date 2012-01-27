@@ -2,7 +2,6 @@
 
 from collections import namedtuple
 from struct import Struct
-from contextlib import contextmanager
 from lib import SEEK_CUR
 
 class File:
