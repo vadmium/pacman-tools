@@ -40,6 +40,10 @@ def main():
     args = sys.argv[2:]
     
     get_mkinitcpio()
+    
+    # The "depmod" files installed with the Linux package a refer to module
+    # file names ending with ".ko", but the actual file names end with
+    # ".ko.gz"
     depmod(basedir, preset)
     
     # The "mkinitcpio" script tries to run ". functions", so get it to run
