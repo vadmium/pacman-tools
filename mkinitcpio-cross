@@ -1,6 +1,4 @@
 #! /usr/bin/env python2
-from __future__ import print_function
-
 """
 Arch Linux mkinitcpio command without using chroot to allow for cross-
 installation of 64-bit OS from 32-bit-only environment.
@@ -8,6 +6,7 @@ installation of 64-bit OS from 32-bit-only environment.
 Requirements:
 bash: parse mkinitcpio preset file
 """
+from __future__ import print_function
 
 import sys
 from os import (
@@ -186,26 +185,10 @@ def depmod(basedir, preset):
         kver = kver.decode()
         print("kver", kver)
     
-    if False:
-        # Work around clumsy "depmod" program behaviour; see
-#https://git.kernel.org/?p=linux/kernel/git/torvalds/linux-2.6.git;h=bfe5424;a=commitdiff
-        depmod_ver = "2.6.0+{0}".format(kver)
-        link = os.path.join(basedir, MODULE_DIR, depmod_ver)
-        symlink(kver, link)
-        try:
-            args = ["depmod", "-b", basedir, depmod_ver]
-            print(*args, file=sys.stderr)
-            subprocess.check_call(args, close_fds=True)
-        finally:
-            remove(link)
-    
     # The following, including some functions called, based on "depmod" from
     # "module-init-tools" (apparently GPL 2)
     
     INDEX_PRIORITY_MIN = ~(~0 << 32)
-    
-    #~ basedir = "/"; kver="2.6.32-31-generic"
-    skipchars = len(basedir)
     
     verify_version(kver)
     
@@ -263,7 +246,7 @@ def depmod(basedir, preset):
             strings = file.get_section(b".strtab")
             syms = file.get_section(b".symtab")
             if strings is not None and syms is not None:
-                tables = dict((name, None) for name in (
+                tables = dict.fromkeys((
                     b"pci", b"usb", b"ccw", b"ieee1394", b"pnp", b"pnp_card",
                     b"input", b"serio", b"of",
                 ))

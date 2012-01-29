@@ -2,7 +2,6 @@
 from __future__ import print_function
 
 from io import BytesIO
-from contextlib import closing
 import elf
 from gzip import GzipFile
 
@@ -10,14 +9,11 @@ MODULE_DIR = "lib/modules"
 
 def open_elf(path):
     (payload, raw) = gzopen(path)
-    with closing(raw):
+    with raw:
         if payload is raw:
-            file = elf.FileRef(path)
+            return elf.FileRef(path)
         else:
-            file = Context(elf.File(BytesIO(payload.read())))
-    with file:
-        pass
-    return file
+            return Context(elf.File(BytesIO(payload.read())))
 
 def gzopen(path):
     raw = None
