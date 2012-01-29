@@ -155,6 +155,10 @@ class File:
         return self.read_str(dynamic.strtab, getattr(dynamic, name))
     
     def read_str(self, (start, size), offset=None):
+        """If size is not given, or offset _is_ given, then string must be
+        terminated with 0. If offset is not given then string may
+        additionally be terminated by the end of the section determined by
+        size."""
         if offset is not None:
             start += offset
             if size is not None:
@@ -163,21 +167,31 @@ class File:
         self.file.seek(start)
         str = bytearray()
         while True:
-            if size is not None:
-                if size > 0:
-                    size -= 1
-                elif offset is not None:
+            chunk = self.STR_BUFFER
+            if size is not None and size < chunk:
+                chunk = size
+            chunk = self.file.read(chunk)
+            if not chunk:
+                if offset is not None:
                     raise EOFError("Unterminated string at {0}".format(
                         start))
                 else:
                     break
+            if size is not None:
+                size -= len(chunk)
             
-            c = ord(self.file.read(1))
-            if not c:
+            try:
+                end = chunk.index(b"\x00")
+            except ValueError:
+                str.extend(chunk)
+            else:
+                str.extend(chunk[:end])
                 break
-            str.append(c)
         
         return bytes(str)
+    STR_BUFFER = 0x100
+    """Probably optimum if this covers most strings in one pass, but does not
+    cause excessively long reads"""
     
     def ph_entries(self):
         ph_offset_offset = {self.CLASS32: 0, self.CLASS64: 4}[self.elf_class]
