@@ -193,12 +193,16 @@ def depmod(basedir, preset):
         finally:
             remove(link)
     
-    # The following, including some functions called, based on "depmod" from
-    # "module-init-tools" (apparently GPL 2)
-    
-    class Record:
+    class Record(object):
         def __init__(self, *args, **kw):
             self.__dict__.update(dict(*args, **kw))
+        def __repr__(self):
+            return "{}({})".format(type(self).__name__,
+                ", ".join("{}={!r}".format(name, value)
+                for (name, value) in self.__dict__.items()))
+    
+    # The following, including some functions called, based on "depmod" from
+    # "module-init-tools" (apparently GPL 2)
     
     INDEX_PRIORITY_MIN = ~(~0 << 32)
     
