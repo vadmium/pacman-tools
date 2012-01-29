@@ -239,16 +239,21 @@ class File:
             raise NotImplementedError(
                 '".symtab" section size: {0}'.format(size))
         
-        for entry in range(start, start + size, entsize):
-            self.file.seek(entry)
-            values = format.unpack(self.file.read(format.size))
-            fields = dict(zip(keys, values))
+        for offset in range(0, size, entsize * self.SYMTAB_BUFFER):
+            self.file.seek(start + offset)
+            chunk_len = min(size - offset, entsize * self.SYMTAB_BUFFER)
+            chunk = self.file.read(chunk_len)
             
-            bind = fields["info"] >> 4
-            type = fields["info"] & 0xF
-            del fields["info"]
-            
-            yield self.SymtabEntry(bind=bind, type=type, **fields)
+            for offset in range(0, chunk_len, entsize):
+                values = format.unpack_from(chunk, offset)
+                fields = dict(zip(keys, values))
+                
+                bind = fields["info"] >> 4
+                type = fields["info"] & 0xF
+                del fields["info"]
+                
+                yield self.SymtabEntry(bind=bind, type=type, **fields)
+    SYMTAB_BUFFER = 0x100
     
     SymtabEntry = namedtuple("SymtabEntry", "name, value, bind, type, shndx")
     STB_WEAK = 2
