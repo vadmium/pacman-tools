@@ -226,25 +226,23 @@ class File:
     
     def symtab_entries(self, (start, size)):
         # TODO: As tuple is to namedtuple, Struct is to -- NamedStruct!
+        if self.elf_class == self.CLASS32:
+            format = "L L 4x B 1x H"
+            keys = ("name", "value", "info", "shndx")
+        if self.elf_class == self.CLASS64:
+            format = "L B 1x H Q"
+            keys = ("name", "info", "shndx", "value")
+        format = Struct(self.enc + format)
         entsize = 4 + 1 + 1 + 2 + self.class_size + self.class_size
-        offsets = {
-            self.CLASS32: dict(name=0, value=4,
-                info=4 + 4 + 4, shndx=4 + 4 + 4 + 1 + 1),
-            self.CLASS64: dict(name=0, info=4, shndx=4 + 1 + 1,
-                value=4 + 1 + 1 + 2),
-        }[self.elf_class]
-        formats = dict(name="L", value=self.class_type, info="B", shndx="H")
         
         if size % entsize:
             raise NotImplementedError(
-                "\".symtab\" section size: {0}".format(size))
+                '".symtab" section size: {0}'.format(size))
         
         for entry in range(start, start + size, entsize):
-            fields = dict()
-            
-            for (name, offset) in offsets.items():
-                self.file.seek(entry + offset)
-                (fields[name],) = self.read(formats[name])
+            self.file.seek(entry)
+            values = format.unpack(self.file.read(format.size))
+            fields = dict(zip(keys, values))
             
             bind = fields["info"] >> 4
             type = fields["info"] & 0xF
