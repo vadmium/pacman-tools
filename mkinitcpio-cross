@@ -345,6 +345,51 @@ def depmod(basedir, preset):
                 mod.deps.add(owner)
     print("{0}/{0}".format(len(tlist)))
     
+    print('Generating "modules.dep"')
+    if True:
+    #~ with open(os.path.join(dirname, "modules.dep"), "w") as file:
+        for (i, mod) in enumerate(tlist):
+            print("{0}/{1}".format(i, len(tlist)), end="\r")
+            
+            dfs_steps = list()
+            ancestors = set()
+            visited = set()
+            postorder = list()
+            
+            node = mod
+            while True:
+                dfs_steps.append(Record(node=node, queue=iter(node.deps)))
+                ancestors.add(node)
+                
+                while dfs_steps:
+                    current = dfs_steps[-1]
+                    try:
+                        node = next(current.queue)
+                    except StopIteration:
+                        node = current.node
+                        ancestors.remove(node)
+                        visited.add(node)
+                        postorder.append(node)
+                        dfs_steps.pop()
+                    else:
+                        if node in ancestors:
+                            print(
+                                "{}: Ignoring cyclic dependency of {} on {}".
+                                format(mod.pathname, current.mod.pathname,
+                                dep.pathname))
+                            continue
+                        if node in visited:
+                            continue
+                        break
+                
+                if not dfs_steps:
+                    break
+            
+            print(mod.pathname, end=":")
+            for dep in reversed(postorder[:-1]):
+                print(" ", end=dep.pathname)
+            print()
+    
     raise NotImplementedError()
 
 # Part of GPL 2 "depmod" port
