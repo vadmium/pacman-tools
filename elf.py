@@ -177,7 +177,7 @@ class File:
                 break
             str.append(c)
         
-        return str.decode()
+        return bytes(str)
     
     def ph_entries(self):
         ph_offset_offset = {self.CLASS32: 0, self.CLASS64: 4}[self.elf_class]

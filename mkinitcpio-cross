@@ -254,7 +254,7 @@ def depmod(basedir, preset):
     for (i, mod) in enumerate(tlist):
         print("{0}/{1}".format(i, len(tlist)), end="\r")
         with mod.elf as file:
-            sec = file.get_section("__ksymtab_strings")
+            sec = file.get_section(b"__ksymtab_strings")
             if sec is not None:
                 (start, size) = sec
                 file.file.seek(start)
@@ -284,18 +284,18 @@ def depmod(basedir, preset):
                     # table chain, so overwrite earlier modules here
                     symbol_owners[bytes(sym)] = mod
             
-            strings = file.get_section(".strtab")
-            syms = file.get_section(".symtab")
+            strings = file.get_section(b".strtab")
+            syms = file.get_section(b".symtab")
             if strings is not None and syms is not None:
                 tables = dict((name, None) for name in (
-                    "pci", "usb", "ccw", "ieee1394", "pnp", "pnp_card",
-                    "input", "serio", "of",
+                    b"pci", b"usb", b"ccw", b"ieee1394", b"pnp", b"pnp_card",
+                    b"input", b"serio", b"of",
                 ))
                 
                 for sym in file.symtab_entries(syms):
                     name = file.read_str(strings, sym.name)
                     try:
-                        name = strip(name, "__mod_", "_device_table")
+                        name = strip(name, b"__mod_", b"_device_table")
                     except ValueError:
                         continue
                     if name not in tables or tables[name] is not None:
@@ -317,8 +317,8 @@ def depmod(basedir, preset):
         print("{0}/{1}".format(i, len(tlist)), end="\r")
         mod.deps = set()
         with mod.elf as file:
-            strings = file.get_section(".strtab")
-            syms = file.get_section(".symtab")
+            strings = file.get_section(b".strtab")
+            syms = file.get_section(b".symtab")
             if strings is None or syms is None:
                 print('{0}: no ".strtab" or ".symtab"'.format(mod.pathname))
                 continue
@@ -331,7 +331,7 @@ def depmod(basedir, preset):
                 
                 name = file.read_str(strings, sym.name)
                 try:
-                    lookup = strip(name, ".")
+                    lookup = strip(name, b".")
                 except ValueError:
                     lookup = name
                 
