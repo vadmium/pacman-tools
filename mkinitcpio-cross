@@ -23,6 +23,8 @@ from contextlib import closing
 from lib import (transplant, SEEK_CUR)
 import elf
 from collections import defaultdict
+import struct
+from os.path import commonprefix
 from os.path import basename
 
 try:
@@ -148,7 +150,6 @@ def depmod(basedir, preset):
     if kver.startswith("/"):
         # Extract version from boot image; based on
         # https://github.com/glensc/file/blob/master/magic/Magdir/linux
-        import struct
         vmlinuz = os.path.join(basedir, kver.lstrip("/"))
         print("extract version", vmlinuz)
         with open(vmlinuz, "rb") as file:
@@ -416,6 +417,85 @@ def depmod(basedir, preset):
             # Order must be correspond to modules.order file
             deps_index[modname].append(
                 Record(line=line.encode("ASCII"), priority=mod.order))
+    
+    print('Writing "modules.dep.bin"')
+    with open(os.path.join(dirname, "modules.dep.bin"), "wb") as file:
+        file.write(struct.pack("!LHH", 0xB007F457, 2, 1))
+        if not deps_index:
+            deps_index = {b"": None}
+        keys = sorted(deps_index.keys())
+        branches = [Record(
+            prefix=0,
+            end=len(keys),
+            fixup=file.tell(),
+        )]
+        file.seek(+4, SEEK_CUR)
+        
+        NODE_PREFIX = 0x80000000
+        NODE_VALUES = 0x40000000
+        NODE_CHILDS = 0x20000000
+        
+        i = 0
+        while branches:
+            branch = branches.pop()
+            first = keys[i]
+            last = keys[branch.end - 1]
+            node = deps_index[first]
+            offset = file.tell()
+            
+            prefix = commonprefix(
+                (first[branch.prefix:], last[branch.prefix:]))
+            prefix_len = branch.prefix + len(prefix)
+            if len(first) == prefix_len:
+                i += 1
+            else:
+                node = None
+            
+            if prefix:
+                offset |= NODE_PREFIX
+                file.write(prefix)
+                file.write(b"\x00")
+            
+            if i < branch.end:
+                offset |= NODE_CHILDS
+                first = keys[i][prefix_len]
+                last = last[prefix_len]
+                file.write(first)
+                file.write(last)
+                
+                ch_end = ord(last) + 1
+                span = ch_end - ord(first)
+                file.write(span * struct.pack("!L", 0))
+                fixups = file.tell()
+                
+                # Branches list is in reverse, so add to it in reverse
+                ki = branch.end
+                for ci in range(1, 1 + span):
+                    ch = ch_end - ci
+                    end = ki
+                    while ki > i and ord(keys[ki - 1][prefix_len]) == ch:
+                        ki -= 1
+                    if ki >= end:
+                        continue
+                    
+                    branches.append(Record(
+                        prefix=prefix_len + 1,
+                        end=end,
+                        fixup = fixups - 4 * ci,
+                    ))
+            
+            if node:
+                offset |= NODE_VALUES
+                file.write(struct.pack("!L", len(node)))
+                for v in node:
+                    file.write(struct.pack("!L", v.priority))
+                    file.write(v.line)
+                    file.write(b"\x00")
+            
+            pos = file.tell()
+            file.seek(branch.fixup)
+            file.write(struct.pack("!L", offset))
+            file.seek(pos)
     
     raise NotImplementedError()
 
