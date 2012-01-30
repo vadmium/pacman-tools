@@ -5,14 +5,15 @@ import os
 from os.path import basename
 from os.path import isabs
 from lib import transplant
-from linux_modules import (MODULE_DIR, gzopen)
+from linux_modules import (MODULE_DIR, gzopen, open_elf)
+from sys import stderr
 
 # This is based on "modinfo" from "module-init-tools" (apparently GPL 2)
 
 def main(*modules, **kw):
     kernel = kw.pop("k")
     basedir = kw.pop("b")
-    kw.pop("0")
+    sep = "\x00" if kw.pop("0", False) else "\n"
     if kw:
         raise TypeError("Unexpected keyword arguments: {0}".format(
             ", ".join(kw.keys())))
@@ -53,6 +54,24 @@ def main(*modules, **kw):
                 name = transplant(filename, new=basedir)
             else:
                 name = os.path.join(moddir, filename)
+        
+        with open_elf(name) as module:
+            for (i, info) in enumerate(module.get_strings(b".modinfo")):
+                if not i:
+                    print("{0:16}{1}".format("filename:", name), end=sep)
+                
+                if sep == "\x00":
+                    print(info, end=sep)
+                    continue
+                
+                try:
+                    (tag, eq) = info.split("=", 1)
+                except ValueError:
+                    print('{0}: Missing "=" separator in ".modinfo" tag'.
+                        format(name), file=stderr)
+                    continue
+                
+                print("{0:16}{1}".format(tag + ":", eq), end=sep)
 main.arg_opts = ("b", "k")
 
 from lib import run_main
