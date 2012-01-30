@@ -26,6 +26,7 @@ from collections import defaultdict
 import struct
 from os.path import commonprefix
 from os.path import basename
+from lib import Record
 
 try:
     from subprocess import (check_output, CalledProcessError)
@@ -195,14 +196,6 @@ def depmod(basedir, preset):
             subprocess.check_call(args, close_fds=True)
         finally:
             remove(link)
-    
-    class Record(object):
-        def __init__(self, *args, **kw):
-            self.__dict__.update(dict(*args, **kw))
-        def __repr__(self):
-            return "{}({})".format(type(self).__name__,
-                ", ".join("{}={!r}".format(name, value)
-                for (name, value) in self.__dict__.items()))
     
     # The following, including some functions called, based on "depmod" from
     # "module-init-tools" (apparently GPL 2)
