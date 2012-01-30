@@ -1,0 +1,16 @@
+#! /usr/bin/env python2
+from __future__ import print_function
+
+# This is based on "modinfo" from "module-init-tools" (apparently GPL 2)
+
+def main(*modules, **kw):
+    kernel = kw.pop("k")
+    basedir = kw.pop("b")
+    kw.pop("0")
+    if kw:
+        raise TypeError("Unexpected keyword arguments: {}".format(
+            ", ".join(kw.keys())))
+main.arg_opts = ("b", "k")
+
+from lib import run_main
+run_main(__name__)
