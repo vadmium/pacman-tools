@@ -41,10 +41,7 @@ except ImportError:
                 format(proc_args[0], proc.returncode))
         return output
 
-def main():
-    (_, basedir, preset) = sys.argv[:3]
-    args = sys.argv[2:]
-    
+def main(basedir, preset, *args):
     get_mkinitcpio()
     
     # The "depmod" files installed with the Linux package a refer to module
@@ -64,7 +61,7 @@ def main():
     
     environ["BASEDIR"] = basedir
     
-    args[:0] = [MKINITCPIO, "-p", preset]
+    args = (MKINITCPIO, "-p", preset) + args
     print(*args, file=sys.stderr)
     sys.stderr.flush()
     execv(args[0], args)
@@ -545,5 +542,5 @@ def random_read(file, offset, size):
     file.seek(offset)
     return file.read(size)
 
-if __name__ == "__main__":
-    main()
+from lib import run_main
+run_main(__name__)
