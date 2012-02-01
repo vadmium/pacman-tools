@@ -27,6 +27,7 @@ import struct
 from os.path import commonprefix
 from os.path import basename
 from lib import Record
+from os.path import isabs
 
 try:
     from subprocess import (check_output, CalledProcessError)
@@ -127,7 +128,7 @@ def get_mkinitcpio():
 MKINITCPIO="mkinitcpio"
 
 def depmod(basedir, preset):
-    if not preset.startswith("/"):
+    if not isabs(preset):
         preset = os.path.join(basedir, "etc/mkinitcpio.d",
             preset + ".preset")
     
@@ -148,7 +149,7 @@ def depmod(basedir, preset):
             "Bash failed with exit status {}".format(e.returncode))
     print("kver", kver)
     
-    if kver.startswith("/"):
+    if isabs(kver):
         # Extract version from boot image; based on
         # https://github.com/glensc/file/blob/master/magic/Magdir/linux
         vmlinuz = os.path.join(basedir, kver.lstrip("/"))
