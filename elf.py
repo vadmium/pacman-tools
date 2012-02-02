@@ -133,12 +133,12 @@ class File:
                     new = strtab - seg.vaddr + seg.offset
                     if found is not None and found != new:
                         raise ValueError(
-                            "Inconsistent mapping: 0x{:X}".format(strtab))
+                            "Inconsistent mapping: 0x{0:X}".format(strtab))
                     found = new
             
             if found is None:
                 raise LookupError(
-                    "No segment found for 0x{:X}".format(strtab))
+                    "No segment found for 0x{0:X}".format(strtab))
             
             strtab = (found, strsz)
         

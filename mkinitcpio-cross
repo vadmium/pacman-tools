@@ -148,7 +148,7 @@ def depmod(basedir, preset):
         )
     except CalledProcessError as e:
         raise SystemExit(
-            "Bash failed with exit status {}".format(e.returncode))
+            "Bash failed with exit status {0}".format(e.returncode))
     print("kver", kver)
     
     if isabs(kver):
@@ -374,10 +374,9 @@ def depmod(basedir, preset):
                         dfs_steps.pop()
                     else:
                         if node in ancestors:
-                            print(
-                                "{}: Ignoring cyclic dependency of {} on {}".
-                                format(mod.pathname, current.mod.pathname,
-                                dep.pathname))
+                            print("{0}: Ignoring cyclic dependency of {1} "
+                                "on {2}".format(mod.pathname,
+                                current.mod.pathname, dep.pathname))
                             continue
                         if node in visited:
                             continue

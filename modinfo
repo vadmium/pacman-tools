@@ -14,7 +14,7 @@ def main(*modules, **kw):
     basedir = kw.pop("b")
     kw.pop("0")
     if kw:
-        raise TypeError("Unexpected keyword arguments: {}".format(
+        raise TypeError("Unexpected keyword arguments: {0}".format(
             ", ".join(kw.keys())))
     
     for name in modules:
@@ -47,7 +47,7 @@ def main(*modules, **kw):
                         break
                 else:
                     raise SystemExit(
-                        "modinfo: could not find module {}".format(name))
+                        "modinfo: could not find module {0}".format(name))
             
             if isabs(filename):
                 name = transplant(filename, new=basedir)
