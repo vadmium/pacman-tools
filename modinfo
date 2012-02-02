@@ -5,6 +5,7 @@ import os
 from os.path import basename
 from os.path import isabs
 from lib import transplant
+from linux_modules import (MODULE_DIR, gzopen)
 
 # This is based on "modinfo" from "module-init-tools" (apparently GPL 2)
 
@@ -18,15 +19,9 @@ def main(*modules, **kw):
     
     for name in modules:
         if "." not in name and "/" not in name:
-            MODULE_DIR = "lib/modules"
-            
             moddir = os.path.join(basedir, MODULE_DIR, kernel)
-            with open(os.path.join(moddir, "modules.dep"), "rb") as file:
-                header = file.read(2)
-                file.seek(0)
-                if header == bytearray((31, 139)):
-                    file = GzipFile(fileobj=file)
-                
+            (file, raw) = gzopen(os.path.join(moddir, "modules.dep"))
+            with raw:
                 for line in file:
                     line = line.strip()
                     if line.startswith("#"):

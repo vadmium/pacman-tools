@@ -17,17 +17,14 @@ from os import (
 import os
 import subprocess
 from collections import namedtuple
-import gzip
-from io import BytesIO
-from contextlib import closing
 from lib import (transplant, SEEK_CUR)
-import elf
 from collections import defaultdict
 import struct
 from os.path import commonprefix
 from os.path import basename
 from lib import Record
 from os.path import isabs
+from linux_modules import (MODULE_DIR, open_elf)
 
 try:
     from subprocess import (check_output, CalledProcessError)
@@ -188,8 +185,6 @@ def depmod(basedir, preset):
         kver = kver.decode()
         print("kver", kver)
     
-    MODULE_DIR = "lib/modules"
-    
     if False:
         # Work around clumsy "depmod" program behaviour; see
 #https://git.kernel.org/?p=linux/kernel/git/torvalds/linux-2.6.git;h=bfe5424;a=commitdiff
@@ -224,17 +219,11 @@ def depmod(basedir, preset):
             
             fullpath = os.path.join(dirpath, f)
             pathname = transplant(fullpath, dirname)
-            
-            if f.endswith(".gz"):
-                with closing(gzip.open(fullpath)) as gz:
-                    file = Context(elf.File(BytesIO(gz.read())))
-            else:
-                file = elf.FileRef(fullpath)
-            with file:
-                pass
-            
             module_files.setdefault(f, Record(
-                elf=file, pathname=pathname, order=INDEX_PRIORITY_MIN))
+                elf=open_elf(fullpath),
+                pathname=pathname,
+                order=INDEX_PRIORITY_MIN),
+            )
         
         i = 0
         while i < len(dirnames):
@@ -516,15 +505,6 @@ def verify_version(version):
         raise ValueError("Required at least Linux version 2.5.48")
 
 # The remaining code is not part of the GPL 2 "depmod" port
-
-class Context:
-    """A dummy context manager that does nothing special"""
-    def __init__(self, arg=None):
-        self.arg = arg
-    def __enter__(self):
-        return self.arg
-    def __exit__(self, *exc):
-        pass
 
 def slice_int(s):
     for (i, d) in enumerate(s):
