@@ -154,6 +154,37 @@ class File:
         dynamic = get_dynamic()
         return self.read_str(dynamic.strtab, getattr(dynamic, name))
     
+    def get_strings(self, secname):
+        sec = self.get_section(secname)
+        if sec is None:
+            return
+        
+        (start, size) = sec
+        self.file.seek(start)
+        while True:
+            while size:
+                peek = ord(self.file.read(1))
+                if peek:
+                    self.file.seek(-1, SEEK_CUR)
+                    break
+                size -= 1
+            if size <= 0:
+                break
+            
+            sym = bytearray()
+            while True:
+                if size <= 0:
+                    raise EOFError(
+                        "Unterminated string in {0}".format(secname))
+                size -= 1
+                
+                c = ord(self.file.read(1))
+                if not c:
+                    break
+                sym.append(c)
+            
+            yield bytes(sym)
+    
     def read_str(self, (start, size), offset=None):
         """If size is not given, or offset _is_ given, then string must be
         terminated with 0. If offset is not given then string may

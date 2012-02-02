@@ -254,35 +254,10 @@ def depmod(basedir, preset):
     for (i, mod) in enumerate(tlist):
         print("{0}/{1}".format(i, len(tlist)), end="\r")
         with mod.elf as file:
-            sec = file.get_section(b"__ksymtab_strings")
-            if sec is not None:
-                (start, size) = sec
-                file.file.seek(start)
-                while True:
-                    while size:
-                        peek = ord(file.file.read(1))
-                        if peek:
-                            file.file.seek(-1, SEEK_CUR)
-                            break
-                        size -= 1
-                    if size <= 0:
-                        break
-                    
-                    sym = bytearray()
-                    while True:
-                        if size <= 0:
-                            raise EOFError(
-                                "Unterminated string in {0}".format(secname))
-                        size -= 1
-                        
-                        c = ord(file.file.read(1))
-                        if not c:
-                            break
-                        sym.append(c)
-                    
-                    # Original "depmod" places later modules at front of hash
-                    # table chain, so overwrite earlier modules here
-                    symbol_owners[bytes(sym)] = mod
+            # Original "depmod" places later modules at front of hash table
+            # chain, so overwrite earlier modules here
+            symbol_owners.update((sym, mod)
+                for sym in file.get_strings(b"__ksymtab_strings"))
             
             strings = file.get_section(b".strtab")
             syms = file.get_section(b".symtab")
