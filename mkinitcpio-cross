@@ -131,6 +131,8 @@ def get_mkinitcpio():
 MKINITCPIO="mkinitcpio"
 
 def depmod(basedir, preset):
+    """Only generates "modules.dep" and "modules.dep.bin". The real "depmod"
+    generates other files as well."""
     if not isabs(preset):
         preset = os.path.join(basedir, "etc/mkinitcpio.d",
             preset + ".preset")
@@ -493,8 +495,6 @@ def depmod(basedir, preset):
             file.seek(branch.fixup)
             file.write(struct.pack("!L", offset))
             file.seek(pos)
-    
-    raise NotImplementedError()
 
 # Part of GPL 2 "depmod" port
 def verify_version(version):
