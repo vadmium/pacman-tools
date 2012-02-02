@@ -41,13 +41,19 @@ except ImportError:
                 format(proc_args[0], proc.returncode))
         return output
 
-def main(basedir, preset, *args):
+def main(basedir, preset, *args, **kw):
+    skip_depmod = kw.pop("skip_depmod", False)
+    if kw:
+        raise TypeError("Unexpected keyword arguments: {0}".format(
+            ", ".join(kw.keys())))
+
     get_mkinitcpio()
     
     # The "depmod" files installed with the Linux package a refer to module
     # file names ending with ".ko", but the actual file names end with
     # ".ko.gz"
-    depmod(basedir, preset)
+    if not skip_depmod:
+        depmod(basedir, preset)
     
     # The "mkinitcpio" script tries to run ". functions", so get it to run
     # our "functions" script first via the search path.
