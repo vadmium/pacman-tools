@@ -137,7 +137,7 @@ def depmod(basedir, kver):
                 mod.deps.add(owner)
     print("{0}/{0}".format(len(tlist)))
     
-    deps_index = defaultdict(list)
+    deps_index = Index()
     print('Generating "modules.dep"')
     with open(os.path.join(dirname, "modules.dep"), "w") as file:
         for (i, mod) in enumerate(tlist):
@@ -184,97 +184,11 @@ def depmod(basedir, kver):
             file.write(line)
             file.write("\n")
             
-            modname = basename(mod.pathname)
-            try:
-                end = modname.index(".")
-            except ValueError:
-                pass
-            else:
-                modname = modname[:end]
-            modname = modname.encode("ASCII").replace(b"-", b"_")
-            
-            # Order must be correspond to modules.order file
-            deps_index[modname].append(
-                Record(line=line.encode("ASCII"), priority=mod.order))
+            deps_index.add(modname(mod.pathname), line.encode("ASCII"),
+                mod.order)
     
     print('Writing "modules.dep.bin"')
-    with open(os.path.join(dirname, "modules.dep.bin"), "wb") as file:
-        file.write(struct.pack("!LHH", 0xB007F457, 2, 1))
-        if not deps_index:
-            deps_index = {b"": None}
-        keys = sorted(deps_index.keys())
-        branches = [Record(
-            prefix=0,
-            end=len(keys),
-            fixup=file.tell(),
-        )]
-        file.seek(+4, SEEK_CUR)
-        
-        NODE_PREFIX = 0x80000000
-        NODE_VALUES = 0x40000000
-        NODE_CHILDS = 0x20000000
-        
-        i = 0
-        while branches:
-            branch = branches.pop()
-            first = keys[i]
-            last = keys[branch.end - 1]
-            node = deps_index[first]
-            offset = file.tell()
-            
-            prefix = commonprefix(
-                (first[branch.prefix:], last[branch.prefix:]))
-            prefix_len = branch.prefix + len(prefix)
-            if len(first) == prefix_len:
-                i += 1
-            else:
-                node = None
-            
-            if prefix:
-                offset |= NODE_PREFIX
-                file.write(prefix)
-                file.write(b"\x00")
-            
-            if i < branch.end:
-                offset |= NODE_CHILDS
-                first = keys[i][prefix_len]
-                last = last[prefix_len]
-                file.write(first)
-                file.write(last)
-                
-                ch_end = ord(last) + 1
-                span = ch_end - ord(first)
-                file.write(span * struct.pack("!L", 0))
-                fixups = file.tell()
-                
-                # Branches list is in reverse, so add to it in reverse
-                ki = branch.end
-                for ci in range(1, 1 + span):
-                    ch = ch_end - ci
-                    end = ki
-                    while ki > i and ord(keys[ki - 1][prefix_len]) == ch:
-                        ki -= 1
-                    if ki >= end:
-                        continue
-                    
-                    branches.append(Record(
-                        prefix=prefix_len + 1,
-                        end=end,
-                        fixup = fixups - 4 * ci,
-                    ))
-            
-            if node:
-                offset |= NODE_VALUES
-                file.write(struct.pack("!L", len(node)))
-                for v in node:
-                    file.write(struct.pack("!L", v.priority))
-                    file.write(v.line)
-                    file.write(b"\x00")
-            
-            pos = file.tell()
-            file.seek(branch.fixup)
-            file.write(struct.pack("!L", offset))
-            file.seek(pos)
+    deps_index.write(dirname, "modules.dep.bin")
 
 # Part of GPL 2 "depmod" port
 def verify_version(version):
@@ -294,6 +208,106 @@ def verify_version(version):
     (minor, _) = slice_int(minor)
     if minor < 48:
         raise ValueError("Required at least Linux version 2.5.48")
+
+# Part of GPL 2 "depmod" port
+def modname(path):
+    name = basename(path)
+    try:
+        end = name.index(".")
+    except ValueError:
+        pass
+    else:
+        name = name[:end]
+    return name.encode("ASCII").replace(b"-", b"_")
+
+# Part of GPL 2 "depmod" port
+class Index(object):
+    NODE_PREFIX = 0x80000000
+    NODE_VALUES = 0x40000000
+    NODE_CHILDS = 0x20000000
+    
+    def __init__(self):
+        self.index = defaultdict(list)
+    
+    def add(self, key, value, priority):
+        """Order added must correspond with priority (typically modules.order
+        file)"""
+        self.index[key].append(Record(value=value, priority=priority))
+    
+    def write(self, dirname, filename):
+        with open(os.path.join(dirname, filename), "wb") as file:
+            file.write(struct.pack("!LHH", 0xB007F457, 2, 1))
+            if not self.index:
+                self.index = {b"": None}
+            keys = sorted(self.index.keys())
+            branches = [Record(
+                prefix=0,
+                end=len(keys),
+                fixup=file.tell(),
+            )]
+            file.seek(+4, SEEK_CUR)
+            
+            i = 0
+            while branches:
+                branch = branches.pop()
+                first = keys[i]
+                last = keys[branch.end - 1]
+                node = self.index[first]
+                offset = file.tell()
+                
+                prefix = commonprefix(
+                    (first[branch.prefix:], last[branch.prefix:]))
+                prefix_len = branch.prefix + len(prefix)
+                if len(first) == prefix_len:
+                    i += 1
+                else:
+                    node = None
+                
+                if prefix:
+                    offset |= self.NODE_PREFIX
+                    file.write(prefix)
+                    file.write(b"\x00")
+                
+                if i < branch.end:
+                    offset |= self.NODE_CHILDS
+                    first = keys[i][prefix_len]
+                    last = last[prefix_len]
+                    file.write(first)
+                    file.write(last)
+                    
+                    ch_end = ord(last) + 1
+                    span = ch_end - ord(first)
+                    file.write(span * struct.pack("!L", 0))
+                    fixups = file.tell()
+                    
+                    # Branches list is in reverse, so add to it in reverse
+                    ki = branch.end
+                    for ci in range(1, 1 + span):
+                        ch = ch_end - ci
+                        end = ki
+                        while ki > i and ord(keys[ki - 1][prefix_len]) == ch:
+                            ki -= 1
+                        if ki >= end:
+                            continue
+                        
+                        branches.append(Record(
+                            prefix=prefix_len + 1,
+                            end=end,
+                            fixup = fixups - 4 * ci,
+                        ))
+                
+                if node:
+                    offset |= self.NODE_VALUES
+                    file.write(struct.pack("!L", len(node)))
+                    for v in node:
+                        file.write(struct.pack("!L", v.priority))
+                        file.write(v.value)
+                        file.write(b"\x00")
+                
+                pos = file.tell()
+                file.seek(branch.fixup)
+                file.write(struct.pack("!L", offset))
+                file.seek(pos)
 
 # The remaining code is not part of the GPL 2 "depmod" port
 
