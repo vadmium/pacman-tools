@@ -189,6 +189,25 @@ def depmod(basedir, kver):
     
     print('Writing "modules.dep.bin"')
     deps_index.write(dirname, "modules.dep.bin")
+    
+    print('Generating "modules.alias.bin"')
+    alias_index = Index()
+    for (i, mod) in enumerate(tlist):
+        print("{0}/{1}".format(i, len(tlist)), end="\r")
+        
+        name = modname(mod.pathname)
+        with mod.elf as file:
+            for alias in file.get_strings(b".modalias"):
+                alias_index.add(underscores(alias), name, mod.order)
+            
+            for p in file.get_strings(b".modinfo"):
+                try:
+                    alias = strip(p, b"alias=")
+                except ValueError:
+                    continue
+                alias_index.add(underscores(alias), name, mod.order)
+    print("{0}/{0}".format(len(tlist)))
+    alias_index.write(dirname, "modules.alias.bin")
 
 # Part of GPL 2 "depmod" port
 def verify_version(version):
@@ -308,6 +327,27 @@ class Index(object):
                 file.seek(branch.fixup)
                 file.write(struct.pack("!L", offset))
                 file.seek(pos)
+
+# Part of GPL 2 "depmod" port
+def underscores(string):
+    res = bytearray()
+    i = 0
+    while i < len(string):
+        c = string[i]
+        
+        if c == b"[":
+            i = string.index(b"]", i) + 1
+            continue
+        if c == b"]":
+            print("{0}: unexpected closing square bracket".format(
+                string.decode()))
+        
+        if c == b"-":
+            c = b"_"
+        res.append(c)
+        i += 1
+    
+    return bytes(res)
 
 # The remaining code is not part of the GPL 2 "depmod" port
 
