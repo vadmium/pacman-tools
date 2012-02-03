@@ -437,7 +437,7 @@ class Analyser(object):
         os.makedirs(self.DB_DIR, exist_ok=True)
         
         with open(os.path.join(self.DB_DIR, self.DEP_DB), "wb") as db:
-            for (indep, deps) in sorted(self.deps.items(), key=itemgetter(0)):
+            for (indep, deps) in sorted(self.deps.items()):
                 db.writelines((indep, b":"))
                 for dep in deps:
                     db.writelines((b"\n  ", dep))

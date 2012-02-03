@@ -146,8 +146,6 @@ def depmod(basedir, kver):
     print('Generating "modules.dep"')
     with open(os.path.join(dirname, "modules.dep"), "w") as file:
         for (i, mod) in enumerate(tlist):
-            print("{0}/{1}".format(i, len(tlist)), end="\r")
-            
             dfs_steps = list()
             ancestors = set()
             visited = set()
