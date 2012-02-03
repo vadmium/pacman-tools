@@ -18,8 +18,13 @@ MODULE_DIR = "lib/modules"
 # This function, and some of the functions it calls, are based on "depmod"
 # from "module-init-tools" (apparently GPL 2)
 def depmod(basedir, kver):
-    """Only generates "modules.dep" and "modules.dep.bin". The real "depmod"
-    generates other files as well."""
+    """Only generates the following files (the real "depmod" generates other
+    files as well)
+        modules.dep
+        modules.dep.bin
+        modules.alias.bin
+        modules.symbols.bin
+    """
     
     INDEX_PRIORITY_MIN = ~(~0 << 32)
     
@@ -208,6 +213,15 @@ def depmod(basedir, kver):
                 alias_index.add(underscores(alias), name, mod.order)
     print("{0}/{0}".format(len(tlist)))
     alias_index.write(dirname, "modules.alias.bin")
+    
+    print('Writing "modules.symbols.bin"')
+    symbols_index = Index()
+    for (name, owners) in symbol_owners.items():
+        # Owners list should be ordered according to modules.order
+        for owner in owners:
+            symbols_index.add(b"symbol:{0}".format(name),
+                modname(owner.pathname), owner.order)
+    symbols_index.write(dirname, "modules.symbols.bin")
 
 # Part of GPL 2 "depmod" port
 def verify_version(version):
