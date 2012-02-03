@@ -59,3 +59,18 @@ findmnt() {
         command findmnt "$@"
     fi
 }
+
+# Work around clumsy "depmod" program behaviour; see
+#https://git.kernel.org/?p=linux/kernel/git/torvalds/linux-2.6.git;h=bfe5424;a=commitdiff
+/sbin/depmod() (
+    test "$1" = -b
+    basedir="$2"
+    kver="$3"
+    depmod_ver="2.6.0+$kver"
+    shift 3
+    
+    link="$basedir/lib/modules/$depmod_ver"
+    trap 'rm -f "$link"' EXIT
+    ln -s "$kver" "$link"
+    command /sbin/depmod -b "$basedir" "$depmod_ver" "$@"
+)
