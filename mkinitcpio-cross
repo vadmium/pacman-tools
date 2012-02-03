@@ -25,6 +25,7 @@ from os.path import basename
 from lib import Record
 from os.path import isabs
 from linux_modules import (MODULE_DIR, open_elf)
+from lib import strip
 
 try:
     from subprocess import (check_output, CalledProcessError)
@@ -487,16 +488,6 @@ def slice_int(s):
     else:
         i = len(s)
     return (int(s[:i]), s[i:])
-
-def strip(s, start="", end=""):
-    if not s.startswith(start):
-        raise ValueError("Expected {0!r} starting string".format(start))
-    if not s.endswith(end):
-        raise ValueError("Expected {0!r} ending string".format(end))
-    if len(s) < len(start) + len(end):
-        raise ValueError(
-            "String not enclosed by {0!r} and {1!r}".format(start, end))
-    return s[len(start):len(s) - len(end)]
 
 def random_read(file, offset, size):
     file.seek(offset)
