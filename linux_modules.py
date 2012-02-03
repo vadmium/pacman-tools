@@ -67,14 +67,12 @@ def depmod(basedir, kver):
     tlist.extend(module_paths.values())
     
     print("Reading symbols from modules")
-    symbol_owners = dict()
+    symbol_owners = defaultdict(list)
     for (i, mod) in enumerate(tlist):
         print("{0}/{1}".format(i, len(tlist)), end="\r")
         with mod.elf as file:
-            # Original "depmod" places later modules at front of hash table
-            # chain, so overwrite earlier modules here
-            symbol_owners.update((sym, mod)
-                for sym in file.get_strings(b"__ksymtab_strings"))
+            for sym in file.get_strings(b"__ksymtab_strings"):
+                symbol_owners[sym].append(mod)
             
             strings = file.get_section(b".strtab")
             syms = file.get_section(b".symtab")
@@ -128,7 +126,9 @@ def depmod(basedir, kver):
                     lookup = name
                 
                 try:
-                    owner = symbol_owners[lookup]
+                    # Original "depmod" places later modules at front of hash
+                    # table chain, so take latest module here
+                    owner = symbol_owners[lookup][-1]
                 except LookupError:
                     continue
                 
