@@ -1,0 +1,10 @@
+#! /usr/bin/env python2
+
+from linux_modules import depmod
+
+def main(kver=None, b="/"):
+    depmod(b, kver)
+main.arg_opts = ("b",)
+
+from lib import run_main
+run_main(__name__)
