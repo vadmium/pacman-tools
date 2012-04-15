@@ -24,6 +24,7 @@ from errno import (EINVAL, ENOENT, ENOTDIR)
 from os import (strerror, stat)
 from signal import (signal, SIGINT, SIGQUIT, SIG_IGN)
 from collections import defaultdict
+from os import devnull
 
 try:
     from lzma import LZMAFile
@@ -465,6 +466,8 @@ def command_trace(args):
 
 def ErrNoError(errno, *args, **kw):
     return EnvironmentError(errno, strerror(errno), *args, **kw)
+
+null = open(devnull, "w")
 
 def strip_root(path):
     start = 0
