@@ -1,0 +1,87 @@
+#! /bin/sh
+
+CACHEDIR=/var/cache/pacman/pkg
+
+main() {
+    shell_init
+    local refresh
+    case "$1" in
+    -y | --refresh)
+        refresh=$1
+        shift
+        ;;
+    esac
+
+    pacman --sync ${refresh+"$refresh"} --downloadonly "$@"
+
+    pkg="$CACHEDIR/$(basename -- "$(pacman --sync --print "$@")")"
+    
+    unset WORK
+    trap onexit EXIT
+    WORK="$(mktemp --tmpdir --directory roopwn.XXXXXXXXXX)"
+    echo >&2 "Temporarily extracting:" "$pkg"
+    local files file deps
+    files="$(tar xvf "$pkg" -C "$WORK" --exclude ".*" --anchored)"
+    while read -r file; do
+        file="$WORK/$file"
+        if ! {
+            test -x "$file" &&
+            deps="$(ldd -- "$file" 2> /dev/null)"
+        } then
+            continue
+        fi
+    done << INPUT
+$files
+INPUT
+    rm -rf -- "$WORK"
+    unset WORK
+    
+    pacman --upgrade "$pkg"
+}
+
+onexit() {
+    if test -n "${WORK+set}"; then
+        rm -rf -- "$WORK"
+    fi
+}
+
+shell_init() {
+    set -o errexit -o nounset
+}
+
+main "$@"
+
+<< 'PYTHON'
+#! /usr/bin/env python3
+
+from sys import argv
+from subprocess import check_call
+
+def main():
+    through = list()
+    refresh = []
+    args = iter(argv[1:])
+    for arg in args:
+        through.append(arg)  # By default
+        if arg == "--":
+            through.extend(args)
+            break
+        if arg.startswith("--"):
+            if arg == "--refresh":
+                through.pop()
+                refresh = [arg]
+        elif arg.startswith("-"):
+            for c in arg[1:]:
+                if c == y
+    check_call("pacman --downloadonly".split() + refresh + args)
+    
+    for arg in args:
+        if not arg.startswith("-"):
+            continue
+        
+        if arg == "--refresh":
+            continue
+
+if __name__ == "__main__":
+    main()
+PYTHON
