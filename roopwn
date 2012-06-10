@@ -36,60 +36,75 @@ main() {
         set -- ${next+-"$next"} "$@"
     done
     
-    local pkg
+    local pkgs
     if test -n "${upgrade+set}"; then
-        pkg="$@"
+        pkgs="(printf '%s\n' "$@")"
     else
         pacman ${sync+"$sync"} ${refresh+"$refresh"} --downloadonly "$@"
         
-        pkg="$CACHEDIR/$(basename -- "$(
-            pacman ${sync+"$sync"} --print "$@")")"
+        pkgs="$(pacman ${sync+"$sync"} --print "$@")"
+        pkgs="$(
+            while read -r pkg; do
+                echo "$CACHEDIR/$(basename -- "$pkg")"
+            done << INPUT
+$pkgs
+INPUT
+        )"
     fi
     
     unset WORK
     trap onexit EXIT
-    WORK="$(mktemp --tmpdir --directory roopwn.XXXXXXXXXX)"
-    echo >&2 "Analysing:" "$pkg"
-    local files file deps missing fail
-    files="$(tar xvf "$pkg" -C "$WORK" --exclude ".*" --anchored)"
-    while read -r file; do
-        workfile="$WORK/$file"
-        if ! {
-            test -x "$workfile" &&
-            deps="$(ldd -- "$workfile" 2> /dev/null)"
-        } then
-            continue
-        fi
-        if missing="$(
-            grep ' => not found$' << INPUT
+    
+    while read -r pkg; do
+        WORK="$(mktemp --tmpdir --directory roopwn.XXXXXXXXXX)"
+        echo >&2
+        echo >&2 "Analysing:" "$pkg"
+        local files file deps missing fail
+        files="$(tar xvf "$pkg" -C "$WORK" --exclude ".*" --anchored)"
+        while read -r file; do
+            workfile="$WORK/$file"
+            if ! {
+                test -x "$workfile" &&
+                deps="$(ldd -- "$workfile" 2> /dev/null)"
+            } then
+                continue
+            fi
+            if missing="$(
+                grep ' => not found$' << INPUT
 $deps
 INPUT
-        )"; then
-            echo >&2 "$file:"
-            echo >&2 "$missing"
-            fail=set
-        fi
-    done << INPUT
+            )"; then
+                echo >&2 "$file:"
+                echo >&2 "$missing"
+                fail=set
+            fi
+        done << INPUT
 $files
 INPUT
-    rm -rf -- "$WORK"
-    unset WORK
+    onexit
+    done << INPUT
+$pkgs
+INPUT
     
     if test -n "${fail-}"; then
         return 1
     fi
     
-    pacman --upgrade "$pkg"
+    IFS="$NL"
+    pacman --upgrade $pkgs
 }
 
 onexit() {
     if test -n "${WORK+set}"; then
         rm -rf -- "$WORK"
     fi
+    unset WORK
 }
 
 shell_init() {
     set -o errexit -o nounset
+NL='
+'
 }
 
 main "$@"
