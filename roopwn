@@ -4,17 +4,47 @@ CACHEDIR=/var/cache/pacman/pkg
 
 main() {
     shell_init
-    local refresh
-    case "$1" in
-    -y | --refresh)
-        refresh=$1
+    local refresh sync upgrade
+    while test "$#" -gt 0; do
+        local opt="$1" next
+        case "$opt" in
+        -[^-]?*)
+            next="${opt#-?}"
+            opt="${opt%"$next"}"
+            ;;
+        *)
+            unset next
+            ;;
+        esac
+        
+        case "$opt" in
+        -S | --sync)
+            sync="$opt"
+            ;;
+        -y | --refresh)
+            refresh="$opt"
+            ;;
+        -U | --upgrade)
+            upgrade="$opt"
+            ;;
+        *)
+            break
+            ;;
+        esac
+        
         shift
-        ;;
-    esac
-
-    pacman --sync ${refresh+"$refresh"} --downloadonly "$@"
-
-    pkg="$CACHEDIR/$(basename -- "$(pacman --sync --print "$@")")"
+        set -- ${next+-"$next"} "$@"
+    done
+    
+    local pkg
+    if test -n "${upgrade+set}"; then
+        pkg="$@"
+    else
+        pacman ${sync+"$sync"} ${refresh+"$refresh"} --downloadonly "$@"
+        
+        pkg="$CACHEDIR/$(basename -- "$(
+            pacman ${sync+"$sync"} --print "$@")")"
+    fi
     
     unset WORK
     trap onexit EXIT
