@@ -38,7 +38,7 @@ main() {
     
     local pkgs
     if test -n "${upgrade+set}"; then
-        pkgs="(printf '%s\n' "$@")"
+        pkgs="$(printf '%s\n' "$@")"
     else
         pacman ${sync+"$sync"} ${refresh+"$refresh"} --downloadonly "$@"
         
