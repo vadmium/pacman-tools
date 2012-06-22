@@ -45,7 +45,7 @@ def main():
         command(["pacman"] + sync + refresh + ["--downloadonly"] + through)
         
         pkgs = list()
-        with Popen(["pacman"] + sync + ["--print"] + through, bufsize=-1,
+        with command_pipe(["pacman"] + sync + ["--print"] + through,
         stdout=subprocess.PIPE) as pacman:
             for line in pacman.stdout:
                 print(line)
@@ -126,7 +126,7 @@ onexit() {
 
 def command(proc_args, *popen_args, trace=False, **kw):
     if trace:
-        print("+", " ".join(proc_args), file=stderr)
+        command_trace(proc_args)
     
     try:
         check_call(proc_args, *popen_args, **kw)
@@ -135,6 +135,29 @@ def command(proc_args, *popen_args, trace=False, **kw):
             raise SystemExit(e)
         else:
             raise SystemExit(e.returncode)
+
+class command_pipe(Popen):
+    def __init__(self,
+    proc_args, *popen_args, bufsize=-1, trace=False, **kw):
+        self.trace = trace
+        if self.trace:
+            self.arg0 = proc_args[0]
+            command_trace(proc_args)
+        
+        Popen.__init__(self, proc_args, *popen_args, bufsize=bufsize, **kw)
+    
+    def wait(self, *args, **kw):
+        returncode = Popen.wait(self, *args, **kw)
+        if returncode:
+            if self.trace:
+                raise SystemExit("Command {self.arg0!r} failed "
+                    "with exit status {returncode}".format_map(locals()))
+            else:
+                raise SystemExit(returncode)
+        return returncode
+
+def command_trace(args):
+    print("+", " ".join(args), file=stderr)
 
 if __name__ == "__main__":
     main()
