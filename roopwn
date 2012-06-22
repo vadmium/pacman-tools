@@ -63,21 +63,37 @@ INPUT
         files="$(tar xvf "$pkg" -C "$WORK" --exclude ".*" --anchored)"
         while read -r file; do
             workfile="$WORK/$file"
+            
             if ! {
                 test -x "$workfile" &&
-                deps="$(ldd -- "$workfile" 2> /dev/null)"
+                interp="$(
+                    readelf --program-headers -- "$workfile" 2> /dev/null)"
             } then
                 continue
             fi
-            if missing="$(
-                grep ' => not found$' << INPUT
-$deps
+            interp="$(sed -n \
+            's/^ *\[Requesting program interpreter: \([^]]*\)\].*$/\1/p' \
+                << INPUT
+$interp
 INPUT
-            )"; then
-                echo >&2 "$file:"
-                echo >&2 "$missing"
+            )"
+            if test ! -e; then
+                echo >&2 "$file: $interp: interp not found"
                 fail=set
             fi
+            
+            needed="$(readelf --dynamic -- "$workfile")"
+            # TODO: handle dynamic entries with RPATH and RUNPATH tags
+            needed="$(sed -n \
+            's/^ *[^ ]\+ *(NEEDED) *Shared library: \[\([^]]*\)\].*$/\1/p' \
+                << INPUT
+$deps
+INPUT
+            )"
+            # TODO: handle absolute path; expand $ORIGIN
+            
+            echo >&2 "$file: needed: $deps"
+            fail=set
         done << INPUT
 $files
 INPUT
