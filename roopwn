@@ -70,11 +70,7 @@ def main():
                 except Exception:
                     raise original
             
-            while True:
-                file = tar.next()
-                if not file:
-                    break
-                
+            for file in tar:
                 start = 0
                 while True:
                     for prefix in ("/", "./", "../"):
@@ -89,7 +85,7 @@ def main():
                 not file.mode & (S_IXUSR | S_IXGRP | S_IXOTH)):
                     continue
                 
-                print(file.name[start:], "→", oct(file.mode))
+                traced(tar.extractfile)(file)
     
     """
     trap onexit EXIT
