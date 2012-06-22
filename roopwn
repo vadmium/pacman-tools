@@ -126,11 +126,11 @@ INPUT
     if test -n "${fail-}"; then
         return 1
     fi
+    """
     
-    IFS="$NL"
-    pacman --upgrade $pkgs
-}
+    command("pacman --upgrade --".split() + pkgs)
 
+"""
 onexit() {
     if test -n "${WORK+set}"; then
         rm -rf -- "$WORK"
