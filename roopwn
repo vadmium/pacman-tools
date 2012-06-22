@@ -4,10 +4,10 @@ from sys import argv
 from subprocess import (check_call, Popen, CalledProcessError)
 import subprocess
 from sys import stderr
+from posixpath import basename
+from os import path
 
-"""
-CACHEDIR=/var/cache/pacman/pkg
-"""
+CACHEDIR = b"/var/cache/pacman/pkg"
 
 def main():
     through = list()
@@ -47,17 +47,11 @@ def main():
         pkgs = list()
         with command_pipe(["pacman"] + sync + ["--print"] + through,
         stdout=subprocess.PIPE) as pacman:
-            for line in pacman.stdout:
-                print(line)
-        """
-        pkgs="$(
-            while read -r pkg; do
-                echo "$CACHEDIR/$(basename -- "$pkg")"
-            done << INPUT
-$pkgs
-INPUT
-        )"
+            for pkg in pacman.stdout:
+                (pkg,) = pkg.splitlines()
+                pkgs.append(path.join(CACHEDIR, basename(pkg)))
     
+    """
     unset WORK
     trap onexit EXIT
     
