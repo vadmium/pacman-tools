@@ -1,48 +1,55 @@
-#! /bin/sh
+#! /usr/bin/env python3
 
+from sys import argv
+from subprocess import (check_call, Popen)
+import subprocess
+
+"""
 CACHEDIR=/var/cache/pacman/pkg
+"""
 
-main() {
-    shell_init
-    local refresh sync upgrade
-    while test "$#" -gt 0; do
-        local opt="$1" next
-        case "$opt" in
-        -[^-]?*)
-            next="${opt#-?}"
-            opt="${opt%"$next"}"
-            ;;
-        *)
-            unset next
-            ;;
-        esac
-        
-        case "$opt" in
-        -S | --sync)
-            sync="$opt"
-            ;;
-        -y | --refresh)
-            refresh="$opt"
-            ;;
-        -U | --upgrade)
-            upgrade="$opt"
-            ;;
-        *)
-            break
-            ;;
-        esac
-        
-        shift
-        set -- ${next+-"$next"} "$@"
-    done
+def main():
+    through = list()
+    refresh = []
+    sync = []
+    upgrade = []
+    args = iter(argv[1:])
+    for arg in args:
+        while True:
+            strung = arg.startswith("-") and arg[1] != "-" and len(arg) > 2
+            if strung:
+                opt = arg[:1 + 1]
+            else:
+                opt = arg
+            
+            if opt in ("-S", "--sync"):
+                sync.append(opt)
+            elif opt in ("-y", "--refresh"):
+                refresh.append(opt)
+            elif opt in ("-U", "--upgrade"):
+                upgrade.append(opt)
+            else:
+                through.append(arg)
+                through.extend(args)
+                break
+            
+            if strung:
+                arg = "-" + arg[1 + 1:]
+            else:
+                break
     
-    local pkgs
-    if test -n "${upgrade+set}"; then
-        pkgs="$(printf '%s\n' "$@")"
-    else
-        pacman ${sync+"$sync"} ${refresh+"$refresh"} --downloadonly "$@"
+    if upgrade:
+        pkgs = through
+    else:
+        check_call(
+            ["pacman"] + sync + refresh + ["--downloadonly"] + through)
         
-        pkgs="$(pacman ${sync+"$sync"} --print "$@")"
+        pkgs = list()
+        with Popen(["pacman"] + sync + ["--print"] + through, bufsize=-1,
+        stdout=subprocess.PIPE) as pacman:
+            for line in pacman.stdout:
+                print(line)
+        """
         pkgs="$(
             while read -r pkg; do
                 echo "$CACHEDIR/$(basename -- "$pkg")"
@@ -50,7 +57,6 @@ main() {
 $pkgs
 INPUT
         )"
-    fi
     
     unset WORK
     trap onexit EXIT
@@ -116,46 +122,7 @@ onexit() {
     fi
     unset WORK
 }
-
-shell_init() {
-    set -o errexit -o nounset
-NL='
-'
-}
-
-main "$@"
-
-<< 'PYTHON'
-#! /usr/bin/env python3
-
-from sys import argv
-from subprocess import check_call
-
-def main():
-    through = list()
-    refresh = []
-    args = iter(argv[1:])
-    for arg in args:
-        through.append(arg)  # By default
-        if arg == "--":
-            through.extend(args)
-            break
-        if arg.startswith("--"):
-            if arg == "--refresh":
-                through.pop()
-                refresh = [arg]
-        elif arg.startswith("-"):
-            for c in arg[1:]:
-                if c == y
-    check_call("pacman --downloadonly".split() + refresh + args)
-    
-    for arg in args:
-        if not arg.startswith("-"):
-            continue
-        
-        if arg == "--refresh":
-            continue
+"""
 
 if __name__ == "__main__":
     main()
-PYTHON
