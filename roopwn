@@ -10,6 +10,8 @@ import tarfile
 from os import fsdecode
 from lib import Cleanup
 from stat import (S_IXUSR, S_IXGRP, S_IXOTH)
+from elftools.elf.elffile import ELFFile
+from elftools.common.exceptions import ELFError
 
 CACHEDIR = b"/var/cache/pacman/pkg"
 
@@ -85,7 +87,10 @@ def main():
                 not file.mode & (S_IXUSR | S_IXGRP | S_IXOTH)):
                     continue
                 
-                traced(tar.extractfile)(file)
+                try:
+                    elf = ELFFile(tar.extractfile(file))
+                except ELFError:
+                    continue
     
     """
     trap onexit EXIT
