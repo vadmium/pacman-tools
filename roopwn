@@ -6,6 +6,9 @@ import subprocess
 from sys import stderr
 from posixpath import basename
 from os import path
+import tarfile
+from os import fsdecode
+from lib import Cleanup
 
 CACHEDIR = b"/var/cache/pacman/pkg"
 
@@ -51,14 +54,29 @@ def main():
                 (pkg,) = pkg.splitlines()
                 pkgs.append(path.join(CACHEDIR, basename(pkg)))
     
+    for pkg in pkgs:
+        print("\nAnalysing:", fsdecode(pkg), file=stderr)
+        
+        with Cleanup() as cleanup:
+            try:
+                tar = cleanup(tarfile.open(pkg))
+            except tarfile.ReadError as original:
+                try:
+                    xz = Popen("xz --decompress --stdout --".split() + [pkg],
+                        bufsize=-1, stdout=subprocess.PIPE)
+                    xz = cleanup(xz)
+                    tar = cleanup(tarfile.open(pkg, "r|", fileobj=xz.stdout))
+                except Exception:
+                    raise original
+            
+            files = traced(tar.getnames, abbrev=("return",))()
+        print(*files, sep="\n")
+        print(len(files))
+    
     """
-    unset WORK
     trap onexit EXIT
     
-    while read -r pkg; do
         WORK="$(mktemp --tmpdir --directory roopwn.XXXXXXXXXX)"
-        echo >&2
-        echo >&2 "Analysing:" "$pkg"
         local files file deps missing fail
         files="$(tar xvf "$pkg" -C "$WORK" --exclude ".*" --anchored)"
         while read -r file; do
@@ -98,9 +116,6 @@ INPUT
 $files
 INPUT
         onexit
-    done << INPUT
-$pkgs
-INPUT
     
     if test -n "${fail-}"; then
         return 1
