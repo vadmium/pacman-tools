@@ -9,6 +9,7 @@ from stat import (S_ISUID, S_ISGID)
 from glob import iglob
 import elf
 from lib import transplant
+from lib import Cleanup
 
 def main():
     (_, root) = argv[:2]
@@ -142,7 +143,7 @@ class ElfResolve:
             for file in list:
                 with Cleanup() as cleanup:
                     try:
-                        probe = cleanup.add(
+                        probe = cleanup(
                             elf.FileRef(os.path.join(rebased, file)))
                     except (EnvironmentError, ValueError):
                         continue
@@ -270,35 +271,6 @@ class Thunk:
         self.res = self.func(*self.args, **self.kw)
         del (self.func, self.args, self.kw)
         return self.res
-
-class Cleanup:
-    def __init__(self):
-        self.exits = []
-    
-    def __enter__(self):
-        return self
-    
-    def __exit__(self, *exc):
-        while self.exits:
-            if self.exits.pop()(*exc):
-                exc = (None, None, None)
-        return exc == (None, None, None)
-    
-    def add(self, context):
-        exit = context.__exit__
-        enter = context.__enter__
-        
-        pos = len(self.exits)
-        self.exits.append(null)
-        try:
-            res = enter()
-        finally:
-            if "res" in locals():
-                self.exits[pos] = exit
-        return res
-
-def null(*args, **kw):
-    pass
 
 if "__main__" == __name__:
     main()
