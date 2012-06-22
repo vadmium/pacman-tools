@@ -9,6 +9,7 @@ from os import path
 import tarfile
 from os import fsdecode
 from lib import Cleanup
+from stat import (S_IXUSR, S_IXGRP, S_IXOTH)
 
 CACHEDIR = b"/var/cache/pacman/pkg"
 
@@ -69,21 +70,33 @@ def main():
                 except Exception:
                     raise original
             
-            files = traced(tar.getnames, abbrev=("return",))()
-        print(*files, sep="\n")
-        print(len(files))
+            while True:
+                file = tar.next()
+                if not file:
+                    break
+                
+                start = 0
+                while True:
+                    for prefix in ("/", "./", "../"):
+                        if file.name.startswith(prefix, start):
+                            start += len(prefix)
+                            break
+                    else:
+                        break
+                
+                if (not file.isfile() or
+                file.name.startswith(".", start) or
+                not file.mode & (S_IXUSR | S_IXGRP | S_IXOTH)):
+                    continue
+                
+                print(file.name[start:], "→", oct(file.mode))
     
     """
     trap onexit EXIT
     
         WORK="$(mktemp --tmpdir --directory roopwn.XXXXXXXXXX)"
         local files file deps missing fail
-        files="$(tar xvf "$pkg" -C "$WORK" --exclude ".*" --anchored)"
-        while read -r file; do
-            workfile="$WORK/$file"
-            
             if ! {
-                test -x "$workfile" &&
                 interp="$(
                     readelf --program-headers -- "$workfile" 2> /dev/null)"
             } then
@@ -112,9 +125,6 @@ INPUT
             
             echo >&2 "$file: needed: $deps"
             fail=set
-        done << INPUT
-$files
-INPUT
         onexit
     
     if test -n "${fail-}"; then
