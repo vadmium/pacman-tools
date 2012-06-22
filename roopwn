@@ -97,7 +97,7 @@ INPUT
         done << INPUT
 $files
 INPUT
-    onexit
+        onexit
     done << INPUT
 $pkgs
 INPUT
