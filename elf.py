@@ -1,4 +1,13 @@
-# Reference: https://www.sco.com/developers/gabi/latest/contents.html
+"""
+Features:
+* Python 3, also potential Python 2.6 support
+* Usable with Python file objects, rather than requiring a file descriptor or
+    entire file buffered in memory (as in "elffile")
+* Parsing of dynamic section, including entries tagged "needed" (not in
+    "pyelftools")
+
+Reference: https://www.sco.com/developers/gabi/latest/contents.html
+"""
 
 from collections import namedtuple
 from struct import Struct
