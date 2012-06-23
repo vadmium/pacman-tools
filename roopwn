@@ -8,7 +8,6 @@ from posixpath import basename
 from os import path
 import tarfile
 from os import fsdecode
-from lib import Cleanup
 from stat import (S_IXUSR, S_IXGRP, S_IXOTH)
 from elftools.elf.elffile import ELFFile
 from elftools.common.exceptions import ELFError
@@ -18,6 +17,7 @@ from lib import Record
 from shutil import copyfileobj
 from gzip import GzipFile
 from bz2 import BZ2File
+from tempfile import TemporaryDirectory
 
 try:
     from lzma import LZMAFile
@@ -73,45 +73,32 @@ def main():
                 (pkg,) = pkg.splitlines()
                 pkgs.append(path.join(CACHEDIR, basename(pkg)))
     
-    for pkg in pkgs:
-        print("\nAnalysing:", fsdecode(pkg), file=stderr)
-        
-        with Cleanup() as cleanup:
-            try:
-                tar = cleanup(tarfile.open(pkg))
-            except tarfile.ReadError as original:
-                try:
-                    xz = Popen("xz --decompress --stdout --".split() + [pkg],
-                        bufsize=-1, stdout=subprocess.PIPE)
-                    xz = cleanup(xz)
-                    tar = cleanup(tarfile.open(pkg, "r|", fileobj=xz.stdout))
-                except Exception:
-                    raise original
-            
-            for file in tar:
-                start = 0
-                while True:
-                    for prefix in ("/", "./", "../"):
-                        if file.name.startswith(prefix, start):
-                            start += len(prefix)
+    with TemporaryDirectory(prefix="roopwn") as work:
+        for pkg in pkgs:
+            print("\nAnalysing:", fsdecode(pkg), file=stderr)
+            name = decompress(pkg, ".tar", work)
+            with tarfile.open(name) as tar:
+                for file in tar:
+                    start = 0
+                    while True:
+                        for prefix in ("/", "./", "../"):
+                            if file.name.startswith(prefix, start):
+                                start += len(prefix)
+                                break
+                        else:
                             break
-                    else:
-                        break
-                
-                if (not file.isfile() or
-                file.name.startswith(".", start) or
-                not file.mode & (S_IXUSR | S_IXGRP | S_IXOTH)):
-                    continue
-                
-                try:
-                    elf = ELFFile(tar.extractfile(file))
-                except ELFError:
-                    continue
+                    
+                    if (not file.isfile() or
+                    file.name.startswith(".", start) or
+                    not file.mode & (S_IXUSR | S_IXGRP | S_IXOTH)):
+                        continue
+                    
+                    try:
+                        elf = ELFFile(tar.extractfile(file))
+                    except ELFError:
+                        continue
     
     """
-    trap onexit EXIT
-    
-        WORK="$(mktemp --tmpdir --directory roopwn.XXXXXXXXXX)"
         local files file deps missing fail
             if ! {
                 interp="$(
@@ -142,7 +129,6 @@ INPUT
             
             echo >&2 "$file: needed: $deps"
             fail=set
-        onexit
     
     if test -n "${fail-}"; then
         return 1
@@ -150,15 +136,6 @@ INPUT
     """
     
     command("pacman --upgrade --".split() + pkgs)
-
-"""
-onexit() {
-    if test -n "${WORK+set}"; then
-        rm -rf -- "$WORK"
-    fi
-    unset WORK
-}
-"""
 
 def decompress(file, ext, dir):
     (decomp_file, comp_ext) = splitext(fsdecode(file))
