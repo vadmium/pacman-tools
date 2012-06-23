@@ -18,6 +18,7 @@ from shutil import copyfileobj
 from gzip import GzipFile
 from bz2 import BZ2File
 from tempfile import TemporaryDirectory
+from elftools.elf.segments import InterpSegment
 
 try:
     from lzma import LZMAFile
@@ -73,6 +74,8 @@ def main():
                 (pkg,) = pkg.splitlines()
                 pkgs.append(path.join(CACHEDIR, basename(pkg)))
     
+    fail = False
+    
     with TemporaryDirectory(prefix="roopwn") as work:
         for pkg in pkgs:
             print("\nAnalysing:", fsdecode(pkg), file=stderr)
@@ -97,26 +100,19 @@ def main():
                         elf = ELFFile(tar.extractfile(file))
                     except ELFError:
                         continue
+                    
+                    for seg in elf.iter_segments():
+                        if not isinstance(seg, InterpSegment):
+                            continue
+                        interp = seg.get_interp_name()
+                        if not path.exists(interp):
+                            print("{}: {}: interp not found".format(
+                                file.name[start:], fsdecode(interp)),
+                                file=stderr)
+                            fail = True
     
     """
         local files file deps missing fail
-            if ! {
-                interp="$(
-                    readelf --program-headers -- "$workfile" 2> /dev/null)"
-            } then
-                continue
-            fi
-            interp="$(sed -n \
-            's/^ *\[Requesting program interpreter: \([^]]*\)\].*$/\1/p' \
-                << INPUT
-$interp
-INPUT
-            )"
-            if test ! -e; then
-                echo >&2 "$file: $interp: interp not found"
-                fail=set
-            fi
-            
             needed="$(readelf --dynamic -- "$workfile")"
             # TODO: handle dynamic entries with RPATH and RUNPATH tags
             needed="$(sed -n \
@@ -129,11 +125,10 @@ INPUT
             
             echo >&2 "$file: needed: $deps"
             fail=set
-    
-    if test -n "${fail-}"; then
-        return 1
-    fi
     """
+    
+    if fail:
+        raise SystemExit(1)
     
     command("pacman --upgrade --".split() + pkgs)
 
