@@ -2,6 +2,59 @@
 
 '''"roopwn": "Running out of Pacman wrapper names"'''
 
+"""TODO:
+    * maybe use pyalpm instead of Pacman CLI calls?
+    * somehow need to combine Pacman --downloadonly and --print operations; the
+        --print option does not ask questions about resolving providers but 
+        --downloadonly does, and the answer may not be what --print assumes; thus
+        it may indicate packages that weren't actually downloaded.
+    * /lib/libc.so.6: version `GLIBC_2.16' not found (required by git-upload-pack)
+    * handle the dependencies of the package that create the /usr/lib/ or /lib/ symlink, or any symlink
+    * need to notify about conflicts before downloading the (wrong) package
+    * temporary packages: remove them instead of upgrading them
+    * Can CLI options be ripped from "pycman" stuff in "pyalpm" package?
+    * Show URL for package info: AUR search or package page; etc
+    * Specify flags applying to certain packages or sets of packages; eg check file deps by default, except for a specific few
+    * Allow source priority to be overridden on CLI, eg --priority gnome-unstable,staging; after that use Pacman's configured priorities
+    * Avoid finding duplicate libraries due to different symlinks (/lib/ and /usr/lib/)
+    * run namcap etc automatically before installing packages; but not for "trusted" packages. This would be a completely different kind of trust to the signed packages trust; you should be able to trust the signature of a package to avoid malicious packages yet not trust it for namcap testing.
+    * if a file dep is not met, could check it in package file db; if found in opt deps then that would be okay (but I don't use the package file db). Also could use that DB to search for packages providing a missing dep
+    * Option to force unlock sync DB
+
+Metapac:
+    * generate an optional dependency package based on optdepends info (group identical explanations, except for missing explanations)
+    * build a dummy package that installs nothing but provides a given package name
+
+Package builder:
+    * register different sources: binary and source repositories
+    * source repositories: AUR, AUR3, Arch Subversion repositories, various Git repositories, local directories
+    * search for info from registered sources
+    * automatic resolving dependencies from registered sources
+    * specify a tag to add to the version when building (e.g. python 3.3 version vs python 3.2 version). Allows separate packages to be built and switched without conflicting the file or version name.
+
+Source package building:
+    curl "https://aur.archlinux.org/packages/${PKGNAME:0:2}/$PKGNAME/$PKGNAME.tar.gz" |
+    tar xzvC ~/abs &&
+    pushd ~/abs/"$PKGNAME" &&
+    namcap -i PKGBUILD &&
+    less PKGBUILD
+    #
+    makepkg &&
+    pkg="$(. PKGBUILD && printf %s "$pkgname-$pkgver-$pkgrel"-*.pkg.tar.xz)" &&
+    namcap "$pkg" &&
+    sudo roopwn -U "$pkg" &&
+    popd
+
+Signed source packages:
+    * include a PKGBUILD.sig in the source tarball
+    * or maybe append signature to PKGBUILD, otherwise how will "makepkg" know to add it?
+    * somehow someone needs to make sure that the signed PKGBUILD does not refer to extra files (eg install scripts) that are not mentioned and checksummed in the PKGBUILD file, otherwise it's too easy for someone to replace these files without invalidating the signature
+    * Would be nice to easily be able to see who made a signature as well; just as an extra step; you still should verify if you like the person who signed it.
+    * Maybe create tarball of source package, create signature file of it, append that to the tarball and upload that. Then it may be possible to verify the signature while you have the tar file, but not if you delete the tar file.
+    * Sign all other files added to tar file in the one signature file. Then you can verify these files after extracting and removing the tar file, but you still have to be careful of referencing unsigned files from the PKGBUILD, so maybe not much better than just signing the PKGBUILD.
+    * Would like to avoid someone being able to include unsigned files in a tarball. Obviously easy to prevent removal, modification, and renaming of signed files. Possibly also sign other aspects of the files, such as permissions (raises portability issue), names of empty directories. Perhaps even signing timestamps, but that would be even less portable.
+"""
+
 from sys import argv
 from subprocess import (check_call, Popen, CalledProcessError)
 import subprocess
