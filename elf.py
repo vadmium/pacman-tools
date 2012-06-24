@@ -12,8 +12,9 @@ Reference: https://www.sco.com/developers/gabi/latest/contents.html
 from collections import namedtuple
 from struct import Struct
 from lib import SEEK_CUR
+from contextlib import contextmanager
 
-class File:
+class Elf:
     EI_NIDENT = 16
     EI_MAG = 0
     EI_CLASS = 4
@@ -317,19 +318,7 @@ class File:
     EM_SPARCV9 = 43
     STT_SPARC_REGISTER = STT_LOPROC
 
-class FileRef:
-    def __init__(self, filename):
-        self.filename = filename
-    
-    def __enter__(self):
-        self.f = None
-        try:
-            self.f = open(self.filename, "rb")
-            return File(self.f)
-        except BaseException:
-            if self.f is not None:
-                self.f.close()
-            raise
-    
-    def __exit__(self, *exc):
-        self.f.close()
+@contextmanager
+def open(filename):
+    with open(self.filename, "rb") as f:
+        yield Elf(f)
