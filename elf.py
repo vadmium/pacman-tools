@@ -194,11 +194,12 @@ class File:
             
             yield bytes(sym)
     
-    def read_str(self, (start, size), offset=None):
+    def read_str(self, sect, offset=None):
         """If size is not given, or offset _is_ given, then string must be
         terminated with 0. If offset is not given then string may
         additionally be terminated by the end of the section determined by
         size."""
+        (start, size) = sect
         if offset is not None:
             start += offset
             if size is not None:
@@ -264,7 +265,8 @@ class File:
             (tag,) = self.read(self.class_type.lower())
             yield tag
     
-    def symtab_entries(self, (start, size)):
+    def symtab_entries(self, sect):
+        (start, size) = sect
         # TODO: As tuple is to namedtuple, Struct is to -- NamedStruct!
         if self.elf_class == self.CLASS32:
             format = "L L 4x B 1x H"
