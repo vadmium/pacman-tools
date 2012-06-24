@@ -3,7 +3,7 @@ from __future__ import print_function
 
 # Reference: https://www.sco.com/developers/gabi/latest/contents.html
 
-from sys import (argv, stdout)
+from sys import argv
 import os
 from stat import (S_ISUID, S_ISGID)
 from glob import iglob

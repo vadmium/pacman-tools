@@ -111,6 +111,9 @@ class File:
         ("strtab",) + tuple(dynamic_lists.keys()))
     
     def read_dynamic(self):
+        """Reads entire dynamic segment or section and returns object holding
+        commonly used entries from it"""
+        
         entries = dict((dt, []) for dt in self.dynamic_lists.values())
         entries.update(dict.fromkeys((self.DT_STRTAB, self.DT_STRSZ)))
         for seg in self.ph_entries():
@@ -136,9 +139,12 @@ class File:
             if strsz is not None:
                 end += strsz
             
+            # Find a segment containing strtab, to convert from memory offset
+            # to file offset
             found = None
             for seg in self.ph_entries():
                 if strtab >= seg.vaddr and end <= seg.vaddr + seg.filesz:
+                    # strtab is contained completely within this segment
                     new = strtab - seg.vaddr + seg.offset
                     if found is not None and found != new:
                         raise ValueError(
