@@ -9,8 +9,6 @@ from os import path
 import tarfile
 from os import fsdecode
 from stat import (S_IXUSR, S_IXGRP, S_IXOTH)
-from elftools.elf.elffile import ELFFile
-from elftools.common.exceptions import ELFError
 from os.path import splitext
 from lib import strip
 from lib import Record
@@ -18,7 +16,7 @@ from shutil import copyfileobj
 from gzip import GzipFile
 from bz2 import BZ2File
 from tempfile import TemporaryDirectory
-from elftools.elf.segments import InterpSegment
+from objfile.deps import Deps
 
 try:
     from lzma import LZMAFile
@@ -97,14 +95,11 @@ def main():
                         continue
                     
                     try:
-                        elf = ELFFile(tar.extractfile(file))
-                    except ELFError:
+                        deps = Deps(tar.extractfile(file), None, None)
+                    except ValueError:
                         continue
                     
-                    for seg in elf.iter_segments():
-                        if not isinstance(seg, InterpSegment):
-                            continue
-                        interp = seg.get_interp_name()
+                    for interp in deps.interps():
                         if not path.exists(interp):
                             print("{}: {}: interp not found".format(
                                 file.name[start:], fsdecode(interp)),
