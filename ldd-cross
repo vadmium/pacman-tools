@@ -34,8 +34,6 @@ class ElfResolve:
             self.privileged = is_privileged(self.name)
             for seg in self.ph_entries():
                 if seg.type == self.elf.PT_INTERP:
-                    interp = (self.elf.read_str((seg.offset, seg.filesz)).
-                        decode())
                     if interp not in self.depends:
                         self.depends.add(interp)
                         print("\t{0} (0x0)".format(interp))

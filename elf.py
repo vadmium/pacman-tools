@@ -328,6 +328,9 @@ class Segment(object):
     
     DYNAMIC = 2
     INTERP = 3
+    
+    def read_interp(self):
+        return self.elf.read_str((self.offset, self.filesz))
 
 @contextmanager
 def open(filename):
