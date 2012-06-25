@@ -21,9 +21,7 @@ def main():
 
 class ElfResolve:
     def __init__(self, root, name):
-        self.root = root
         self.soname_paths = dict()
-        self.deflibs = Thunk(ldconfig_parse, self.root, "/etc/ld.so.conf")
         self.depends = set()
         exe_queue = [name]
         exe_seen = set(exe_queue)
@@ -31,8 +29,6 @@ class ElfResolve:
             self.needed_queue = []
             self.needed_seen = set(self.needed_queue)
             self.name = exe_queue.pop()
-            self.privileged = is_privileged(self.name)
-            for seg in self.ph_entries():
                 if seg.type == self.elf.PT_INTERP:
                     if interp not in self.depends:
                         self.depends.add(interp)
@@ -66,16 +62,6 @@ class ElfResolve:
                     yield seg
     
     def parse_dynamic(self, seg):
-        if seg.type != self.elf.PT_DYNAMIC:
-            return
-        
-        for tag in self.elf.pt_dynamic_entries(seg):
-            if tag != self.elf.DT_NEEDED:
-                continue
-            
-            needed = self.sub_origin(raw_needed)
-            
-            if "/" not in needed:
                 for path in self.search_paths():
                     try:
                         needed = self.search_sonames(path, needed)
@@ -93,34 +79,6 @@ class ElfResolve:
             if needed not in self.needed_seen:
                 self.needed_queue.append(needed)
                 self.needed_seen.add(needed)
-    
-    def search_paths(self):
-        if not self.dynamic.runpath:
-            for dirs in self.get_rpath():
-                for dir in dirs.split(b":"):
-                    yield dir.decode()
-        
-        if not self.privileged:
-            try:
-                search = os.environ["LD_LIBRARY_PATH"]
-            except LookupError:
-                pass
-            else:
-                for dirs in search.split(";"):
-                    for dir in dirs.split(":"):
-                        yield dir
-        
-        for dirs in self.get_runpath():
-            for dir in dirs.split(b":"):
-                try:
-                    dir = self.sub_origin(dir.decode())
-                except ValueError:
-                    pass
-                else:
-                    yield dir
-        
-        for dir in self.deflibs():
-            yield dir
     
     def search_sonames(self, path, needed):
         if path not in self.soname_paths:
@@ -161,20 +119,6 @@ class ElfResolve:
     def get_origin(self):
         origin = os.path.realpath(os.path.dirname(self.name))
         return transplant(origin, old=os.path.realpath(self.root), new="/")
-    
-    def sub_origin(self, str):
-        subs = ("$ORIGIN", "${ORIGIN}")
-        if all(sub not in str for sub in subs):
-            return str
-        if self.privileged:
-            raise ValueError("$ORIGIN substitution used "
-                "for privileged executable: {0}".format(str))
-        
-        frags0 = str.split(subs[0])
-        frags1 = []
-        for f in frags0:
-            frags1.extend(f.split(subs[1]))
-        return self.origin().join(frags1)
 
 def ldconfig_parse(root, conf):
     dirs = []
@@ -249,21 +193,6 @@ class LdConfigFile:
 
 def is_privileged(name):
     return os.stat(name).st_mode & (S_ISUID | S_ISGID)
-
-class Thunk:
-    def __init__(self, *args, **kw):
-        if not hasattr(self, "res") and args:
-            self.func = args[0]
-            self.args = args[1:]
-            self.kw = kw
-    def __call__(self):
-        try:
-            return self.res
-        except AttributeError:
-            pass
-        self.res = self.func(*self.args, **self.kw)
-        del (self.func, self.args, self.kw)
-        return self.res
 
 if "__main__" == __name__:
     main()
