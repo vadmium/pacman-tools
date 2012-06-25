@@ -93,9 +93,6 @@ class Elf:
         else:
             return self.read_str(self.secnames, name)
     
-    PT_DYNAMIC = 2
-    PT_INTERP = 3
-    
     DT_NEEDED = 1
     DT_STRTAB = 5
     DT_STRSZ = 10
@@ -116,7 +113,7 @@ class Elf:
         entries = dict((dt, []) for dt in self.dynamic_lists.values())
         entries.update(dict.fromkeys((self.DT_STRTAB, self.DT_STRSZ)))
         for seg in self.ph_entries():
-            if seg.type != self.PT_DYNAMIC:
+            if seg.type != seg.DYNAMIC:
                 continue
             
             for tag in self.pt_dynamic_entries(seg):
@@ -247,15 +244,7 @@ class Elf:
         
         for i in range(self.phnum):
             self.file.seek(self.phoff + self.phentsize * i)
-            (
-                type,
-                offset, vaddr,
-                filesz,
-            ) = self.read(format)
-            yield self.PhEntry(type=type, offset=offset, vaddr=vaddr,
-                filesz=filesz)
-    
-    PhEntry = namedtuple("PhEntry", "type, offset, vaddr, filesz")
+            yield Segment(self, *self.read(self.format))
     
     def pt_dynamic_entries(self, seg):
         # Assume that the ".dynamic" _section_ is located at the start of the
@@ -328,6 +317,17 @@ class Elf:
     EM_SPARC = 2
     EM_SPARCV9 = 43
     STT_SPARC_REGISTER = STT_LOPROC
+
+class Segment(object):
+    def __init__(self, elf, type, offset, vaddr, filesz):
+        self.elf = elf
+        self.type = type
+        self.offset = offset
+        self.vaddr = vaddr
+        self.filesz = filesz
+    
+    DYNAMIC = 2
+    INTERP = 3
 
 @contextmanager
 def open(filename):
