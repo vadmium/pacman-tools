@@ -42,26 +42,25 @@ class Elf:
         ).items():
             setattr(self, name, ord(ident[index:][:1]))
         
-        self.class_type = {self.CLASS32: "L", self.CLASS64: "Q"}[
-            self.elf_class]
         self.enc = {self.DATA2LSB: "<", self.DATA2MSB: ">"}[self.data]
-        self.class_size = Struct(self.enc + self.class_type).size
+        format = {self.CLASS32: "L", self.CLASS64: "Q"}[self.elf_class]
+        self.class_format = dict(
+            I=format,
+            i=format.lower(),
+            X="{}x".format(Struct(self.enc + format).size)
+        )
         
-        self.file.seek(+2, SEEK_CUR)
-        (self.machine, self.version) = self.read("HL")
-        self.file.seek(+self.class_size, SEEK_CUR)
-        (self.phoff, self.shoff, self.flags) = self.read(
-            self.class_type + self.class_type + "L")
-        self.file.seek(+2, SEEK_CUR)
-        (self.phentsize, self.phnum, self.shentsize, self.shnum,
-            shstrndx) = self.read("HHHHH")
+        (
+            self.machine, self.version,
+            self.phoff, self.shoff, self.flags,
+            self.phentsize, self.phnum, self.shentsize, self.shnum, shstrndx,
+        ) = self.read("2x HL X IIL 2x HHHHH")
         
         if shstrndx == self.SHN_UNDEF:
             self.secnames = None
         else:
-            self.file.seek(self.shoff + self.shentsize * shstrndx +
-                4 + 4 + self.class_size + self.class_size)
-            self.secnames = self.read(self.class_type + self.class_type)
+            self.file.seek(self.shoff + self.shentsize * shstrndx)
+            self.secnames = self.read("4x4xXX II")
     
     def matches(self, elf):
         # Ignore object file type field because it is unclear which types
@@ -81,13 +80,10 @@ class Elf:
     def get_section(self, name):
         for i in range(1, self.shnum):
             self.file.seek(self.shoff + self.shentsize * i)
-            (n,) = self.read("H")
+            (n, offset, size) = self.read("L 4xXX II")
             if self.getname(n) != name:
                 continue
-            
-            self.file.seek(self.shoff + self.shentsize * i +
-                4 + 4 + self.class_size + self.class_size)
-            return self.read(self.class_type + self.class_type)
+            return (offset, size)
         else:
             return None
     
@@ -244,15 +240,18 @@ class Elf:
     cause excessively long reads"""
     
     def ph_entries(self):
-        ph_offset_offset = {self.CLASS32: 0, self.CLASS64: 4}[self.elf_class]
+        format = {
+            self.CLASS32: "L II X I",
+            self.CLASS64: "L 4x II X I",
+        }[self.elf_class]
         
         for i in range(self.phnum):
             self.file.seek(self.phoff + self.phentsize * i)
-            (type,) = self.read("L")
-            self.file.seek(+ph_offset_offset, SEEK_CUR)
-            (offset, vaddr) = self.read(self.class_type + self.class_type)
-            self.file.seek(+self.class_size, SEEK_CUR)
-            (filesz,) = self.read(self.class_type)
+            (
+                type,
+                offset, vaddr,
+                filesz,
+            ) = self.read(format)
             yield self.PhEntry(type=type, offset=offset, vaddr=vaddr,
                 filesz=filesz)
     
@@ -264,27 +263,27 @@ class Elf:
         # _section_ (or the _DYNAMIC _symbol_ which labels it) from the
         # program (segment) header alone.
         
-        entsize = self.class_size + self.class_size
+        entsize = self.Struct("iX").size
         if seg.filesz % entsize:
             raise NotImplementedError(
                 "Segment PT_DYNAMIC file size: {0}".format(seg.filesz))
         
-        for i in range(seg.offset, seg.offset + seg.filesz, entsize):
-            self.file.seek(i)
-            (tag,) = self.read(self.class_type.lower())
+        self.file.seek(seg.offset)
+        for _ in range(seg.filesz // entsize):
+            (tag,) = self.read("iX")
             yield tag
     
     def symtab_entries(self, sect):
         (start, size) = sect
         # TODO: As tuple is to namedtuple, Struct is to -- NamedStruct!
         if self.elf_class == self.CLASS32:
-            format = "L L 4x B 1x H"
+            format = "L I X B 1x H"
             keys = ("name", "value", "info", "shndx")
         if self.elf_class == self.CLASS64:
-            format = "L B 1x H Q"
+            format = "L B 1x H I X"
             keys = ("name", "info", "shndx", "value")
-        format = Struct(self.enc + format)
-        entsize = 4 + 1 + 1 + 2 + self.class_size + self.class_size
+        format = self.Struct(format)
+        entsize = format.size
         
         if size % entsize:
             raise NotImplementedError(
@@ -310,8 +309,20 @@ class Elf:
     STB_WEAK = 2
     STT_LOPROC = 13
     
+    def Struct(self, format):
+        """Extension to struct.Struct()
+        
+        I (capital eye) -> unsigned word, depending on ELF class
+        i (lowercase eye) -> signed word
+        X (capital ex) -> padding of word size
+        """
+        
+        for (old, new) in self.class_format.items():
+            format = format.replace(old, new)
+        return Struct(self.enc + format)
+    
     def read(self, format):
-        s = Struct(self.enc + format)
+        s = self.Struct(format)
         return s.unpack(self.file.read(s.size))
     
     EM_SPARC = 2
