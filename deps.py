@@ -68,16 +68,17 @@ class Deps(object):
         return self.origin().join(frags1)
 
 class Thunk:
-    def __init__(self, *args, **kw):
-        if not hasattr(self, "res") and args:
-            self.func = args[0]
-            self.args = args[1:]
-            self.kw = kw
+    def __init__(self, func, *args, **kw):
+        self.func = func
+        self.args = args
+        self.kw = kw
+        self.called = False
+    
     def __call__(self):
-        try:
+        if self.called:
             return self.res
-        except AttributeError:
-            pass
+        
         self.res = self.func(*self.args, **self.kw)
+        self.called = True
         del (self.func, self.args, self.kw)
         return self.res
