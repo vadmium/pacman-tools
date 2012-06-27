@@ -94,10 +94,6 @@ class Elf:
         else:
             return self.read_str(self.secnames, name)
     
-    def read_dynamic(self):
-        """Reads dynamic segments into new Dynamic() object"""
-        return Dynamic(self.read_segments())
-    
     def read_dyn_list(self, get_dynamic, name):
         dynamic = get_dynamic()
         return list(self.read_str(dynamic.strtab, offset)
@@ -268,6 +264,23 @@ class Segments(object):
         return len(self.list)
     def __getitem__(self, i):
         return self.list[i]
+    
+    def read_dynamic(self):
+        """Reads dynamic segments into new Dynamic() object"""
+        
+        dynamic = Dynamic()
+        for seg in self:
+            if seg.type != seg.DYNAMIC:
+                continue
+            
+            # Assume that the ".dynamic" _section_ is located at the start of
+            # the _segment_ identified by PT_DYNAMIC, otherwise you cannot
+            # find the _section_ (or the "_DYNAMIC" _symbol_ which labels it)
+            # from the program (segment) header alone.
+            dynamic.add(seg.elf, (seg.offset, seg.filesz))
+        
+        dynamic.segments_strtab(self)
+        return dynamic
 
 class Segment(object):
     def __init__(self, elf, type, offset, vaddr, filesz):
@@ -284,28 +297,21 @@ class Segment(object):
         return self.elf.read_str((self.offset, self.filesz))
 
 class Dynamic(object):
-    def __init__(self, segments):
-        entries = defaultdict(list)
+    def __init__(self):
+        self.entries = defaultdict(list)
         for (name, tag) in self.tag_attrs:
-            setattr(self, name, entries[tag])
-        
-        for seg in segments:
-            if seg.type != seg.DYNAMIC:
-                continue
-            
-            # Assume that the ".dynamic" _section_ is located at the start of
-            # the _segment_ identified by PT_DYNAMIC, otherwise you cannot
-            # find the _section_ (or the "_DYNAMIC" _symbol_ which labels it)
-            # from the program (segment) header alone.
-            for (tag, value) in seg.elf.dynamic_entries(
-            (seg.offset, seg.filesz)):
-                entries[tag].append(value)
-        
-        strtab = entries[self.STRTAB]
+            setattr(self, name, self.entries[tag])
+    
+    def add(self, elf, sect):
+        for (tag, value) in elf.dynamic_entries(sect):
+            self.entries[tag].append(value)
+    
+    def segments_strtab(self, segments):
+        strtab = self.entries[self.STRTAB]
         if strtab:
             (strtab,) = strtab
             end = strtab
-            strsz = entries[self.STRSZ]
+            strsz = self.entries[self.STRSZ]
             if strsz:
                 (strsz,) = strsz
                 end += strsz
