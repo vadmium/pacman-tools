@@ -73,7 +73,6 @@ class ElfResolve:
             if tag != self.elf.DT_NEEDED:
                 continue
             
-            (offset,) = self.elf.read(self.elf.class_type)
             self.dynamic = self.get_dynamic()
             
             raw_needed = (self.elf.read_str(self.dynamic.strtab, offset).

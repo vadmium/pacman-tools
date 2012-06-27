@@ -116,13 +116,17 @@ class Elf:
             if seg.type != seg.DYNAMIC:
                 continue
             
-            for tag in self.pt_dynamic_entries(seg):
+            # Assume that the ".dynamic" _section_ is located at the start of
+            # the _segment_ identified by PT_DYNAMIC, otherwise you cannot
+            # find the _section_ (or the "_DYNAMIC" _symbol_ which labels it)
+            # from the program (segment) header alone.
+            for (tag, value) in self.dynamic_entries(
+            (seg.offset, seg.filesz)):
                 try:
                     list = entries[tag]
                 except LookupError:
                     continue
                 
-                (value,) = self.read(self.class_type)
                 if list is None:
                     entries[tag] = value
                 else:
@@ -246,21 +250,16 @@ class Elf:
             self.file.seek(self.phoff + self.phentsize * i)
             yield Segment(self, *self.read(self.format))
     
-    def pt_dynamic_entries(self, seg):
-        # Assume that the ".dynamic" _section_ is located at the start of the
-        # _segment_ identified by PT_DYNAMIC, otherwise you cannot find the
-        # _section_ (or the _DYNAMIC _symbol_ which labels it) from the
-        # program (segment) header alone.
-        
-        entsize = self.Struct("iX").size
-        if seg.filesz % entsize:
+    def dynamic_entries(self, sect):
+        (offset, size) = sect
+        entsize = self.Struct("iI").size
+        if size % entsize:
             raise NotImplementedError(
-                "Segment PT_DYNAMIC file size: {0}".format(seg.filesz))
+                "Dynamic section size: {0}".format(size))
         
-        self.file.seek(seg.offset)
-        for _ in range(seg.filesz // entsize):
-            (tag,) = self.read("iX")
-            yield tag
+        self.file.seek(offset)
+        for _ in range(size // entsize):
+            yield self.read("iI")
     
     def symtab_entries(self, sect):
         (start, size) = sect
