@@ -13,6 +13,7 @@ from collections import namedtuple
 from struct import Struct
 from lib import SEEK_CUR
 from contextlib import contextmanager
+from collections import defaultdict
 
 class Elf:
     EI_NIDENT = 16
@@ -93,25 +94,14 @@ class Elf:
         else:
             return self.read_str(self.secnames, name)
     
-    DT_NEEDED = 1
-    DT_STRTAB = 5
-    DT_STRSZ = 10
-    DT_SONAME = 14
-    DT_RPATH = 15
-    DT_RUNPATH = 29
-    
-    dynamic_lists = dict(
-        rpath=DT_RPATH, runpath=DT_RUNPATH, soname=DT_SONAME,
-    )
-    Dynamic = namedtuple("Dynamic",
-        ("strtab",) + tuple(dynamic_lists.keys()))
-    
     def read_dynamic(self):
-        """Reads entire dynamic segment or section and returns object holding
-        commonly used entries from it"""
+        """Reads dynamic segments into new Dynamic() object"""
         
-        entries = dict((dt, []) for dt in self.dynamic_lists.values())
-        entries.update(dict.fromkeys((self.DT_STRTAB, self.DT_STRSZ)))
+        dynamic = Record()
+        entries = defaultdict(list)
+        for (name, tag) in self.tag_attrs:
+            setattr(dynamic, name, entries[tag])
+        
         for seg in self.ph_entries():
             if seg.type != seg.DYNAMIC:
                 continue
@@ -122,22 +112,18 @@ class Elf:
             # from the program (segment) header alone.
             for (tag, value) in self.dynamic_entries(
             (seg.offset, seg.filesz)):
-                try:
-                    list = entries[tag]
-                except LookupError:
-                    continue
-                
-                if list is None:
-                    entries[tag] = value
-                else:
-                    list.append(value)
+                entries[tag].append(value)
         
         strtab = entries[self.DT_STRTAB]
-        if strtab is not None:
+        if strtab:
+            (strtab,) = strtab
             end = strtab
             strsz = entries[self.DT_STRSZ]
-            if strsz is not None:
+            if strsz:
+                (strsz,) = strsz
                 end += strsz
+            else:
+                strsz = None
             
             # Find a segment containing strtab, to convert from memory offset
             # to file offset
@@ -155,10 +141,23 @@ class Elf:
                 raise LookupError(
                     "No segment found for 0x{0:X}".format(strtab))
             
-            strtab = (found, strsz)
+            dynamic.strtab = (found, strsz)
+        else:
+            dynamic.strtab = None
         
-        return self.Dynamic(strtab=strtab, **dict((name, entries[dt])
-            for (name, dt) in self.dynamic_lists.items()))
+        return dynamic
+    
+    DT_NEEDED = 1
+    DT_STRTAB = 5
+    DT_STRSZ = 10
+    DT_SONAME = 14
+    DT_RPATH = 15
+    DT_RUNPATH = 29
+    
+    tag_attrs = dict(
+        rpath=DT_RPATH, runpath=DT_RUNPATH, soname=DT_SONAME,
+        needed=DT_NEEDED,
+    ).items()
     
     def read_dyn_list(self, get_dynamic, name):
         dynamic = get_dynamic()
