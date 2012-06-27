@@ -94,15 +94,6 @@ class Elf:
         else:
             return self.read_str(self.secnames, name)
     
-    def read_dyn_list(self, get_dynamic, name):
-        dynamic = get_dynamic()
-        return list(self.read_str(dynamic.strtab, offset)
-            for offset in getattr(dynamic, name))
-    
-    def read_dyn_str(self, get_dynamic, name):
-        dynamic = get_dynamic()
-        return self.read_str(dynamic.strtab, getattr(dynamic, name))
-    
     def get_strings(self, secname):
         sec = self.get_section(secname)
         if sec is None:
@@ -246,19 +237,21 @@ class Elf:
 
 class Segments(object):
     def __init__(self, elf, phoff, phentsize, phnum):
+        self.elf = elf
+        
         format = {
-            elf.CLASS32: "L II X I",
-            elf.CLASS64: "L 4x II X I",
+            self.elf.CLASS32: "L II X I",
+            self.elf.CLASS64: "L 4x II X I",
         }[elf.elf_class]
         
-        if phentsize < elf.Struct(format).size:
+        if phentsize < self.elf.Struct(format).size:
             raise NotImplementedError("Program header entry size too small: "
                 "{phentsize}".format_map(locals()))
         
         self.list = list()
         for i in range(phnum):
-            elf.file.seek(phoff + phentsize * i)
-            self.list.append(Segment(elf, *elf.read(format)))
+            self.elf.file.seek(phoff + phentsize * i)
+            self.list.append(Segment(self.elf, *self.elf.read(format)))
     
     def __len__(self):
         return len(self.list)
@@ -268,7 +261,7 @@ class Segments(object):
     def read_dynamic(self):
         """Reads dynamic segments into new Dynamic() object"""
         
-        dynamic = Dynamic()
+        dynamic = Dynamic(self.elf)
         for seg in self:
             if seg.type != seg.DYNAMIC:
                 continue
@@ -277,7 +270,7 @@ class Segments(object):
             # the _segment_ identified by PT_DYNAMIC, otherwise you cannot
             # find the _section_ (or the "_DYNAMIC" _symbol_ which labels it)
             # from the program (segment) header alone.
-            dynamic.add(seg.elf, (seg.offset, seg.filesz))
+            dynamic.add((seg.offset, seg.filesz))
         
         dynamic.segments_strtab(self)
         return dynamic
@@ -297,13 +290,14 @@ class Segment(object):
         return self.elf.read_str((self.offset, self.filesz))
 
 class Dynamic(object):
-    def __init__(self):
+    def __init__(self, elf):
+        self.elf = elf
         self.entries = defaultdict(list)
         for (name, tag) in self.tag_attrs:
             setattr(self, name, self.entries[tag])
     
-    def add(self, elf, sect):
-        for (tag, value) in elf.dynamic_entries(sect):
+    def add(self, sect):
+        for (tag, value) in self.elf.dynamic_entries(sect):
             self.entries[tag].append(value)
     
     def segments_strtab(self, segments):
@@ -348,6 +342,9 @@ class Dynamic(object):
     tag_attrs = dict(
         rpath=RPATH, runpath=RUNPATH, soname=SONAME, needed=NEEDED,
     ).items()
+    
+    def read_str(self, entry):
+        return self.elf.read_str(self.strtab, entry)
 
 @contextmanager
 def open(filename):
