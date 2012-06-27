@@ -96,68 +96,7 @@ class Elf:
     
     def read_dynamic(self):
         """Reads dynamic segments into new Dynamic() object"""
-        
-        dynamic = Record()
-        entries = defaultdict(list)
-        for (name, tag) in self.tag_attrs:
-            setattr(dynamic, name, entries[tag])
-        
-        for seg in self.ph_entries():
-            if seg.type != seg.DYNAMIC:
-                continue
-            
-            # Assume that the ".dynamic" _section_ is located at the start of
-            # the _segment_ identified by PT_DYNAMIC, otherwise you cannot
-            # find the _section_ (or the "_DYNAMIC" _symbol_ which labels it)
-            # from the program (segment) header alone.
-            for (tag, value) in self.dynamic_entries(
-            (seg.offset, seg.filesz)):
-                entries[tag].append(value)
-        
-        strtab = entries[self.DT_STRTAB]
-        if strtab:
-            (strtab,) = strtab
-            end = strtab
-            strsz = entries[self.DT_STRSZ]
-            if strsz:
-                (strsz,) = strsz
-                end += strsz
-            else:
-                strsz = None
-            
-            # Find a segment containing strtab, to convert from memory offset
-            # to file offset
-            found = None
-            for seg in self.ph_entries():
-                if strtab >= seg.vaddr and end <= seg.vaddr + seg.filesz:
-                    # strtab is contained completely within this segment
-                    new = strtab - seg.vaddr + seg.offset
-                    if found is not None and found != new:
-                        raise ValueError(
-                            "Inconsistent mapping: 0x{0:X}".format(strtab))
-                    found = new
-            
-            if found is None:
-                raise LookupError(
-                    "No segment found for 0x{0:X}".format(strtab))
-            
-            dynamic.strtab = (found, strsz)
-        else:
-            dynamic.strtab = None
-        
-        return dynamic
-    
-    DT_NEEDED = 1
-    DT_STRTAB = 5
-    DT_STRSZ = 10
-    DT_SONAME = 14
-    DT_RPATH = 15
-    DT_RUNPATH = 29
-    
-    tag_attrs = dict(
-        rpath=DT_RPATH, runpath=DT_RUNPATH, soname=DT_SONAME,
-        needed=DT_NEEDED,
-    ).items()
+        return Dynamic(self)
     
     def read_dyn_list(self, get_dynamic, name):
         dynamic = get_dynamic()
@@ -329,6 +268,66 @@ class Segment(object):
     
     def read_interp(self):
         return self.elf.read_str((self.offset, self.filesz))
+
+class Dynamic(object):
+    def __init__(self, elf):
+        entries = defaultdict(list)
+        for (name, tag) in self.tag_attrs:
+            setattr(self, name, entries[tag])
+        
+        for seg in elf.ph_entries():
+            if seg.type != seg.DYNAMIC:
+                continue
+            
+            # Assume that the ".dynamic" _section_ is located at the start of
+            # the _segment_ identified by PT_DYNAMIC, otherwise you cannot
+            # find the _section_ (or the "_DYNAMIC" _symbol_ which labels it)
+            # from the program (segment) header alone.
+            for (tag, value) in elf.dynamic_entries(
+            (seg.offset, seg.filesz)):
+                entries[tag].append(value)
+        
+        strtab = entries[self.STRTAB]
+        if strtab:
+            (strtab,) = strtab
+            end = strtab
+            strsz = entries[self.STRSZ]
+            if strsz:
+                (strsz,) = strsz
+                end += strsz
+            else:
+                strsz = None
+            
+            # Find a segment containing strtab, to convert from memory offset
+            # to file offset
+            found = None
+            for seg in elf.ph_entries():
+                if strtab >= seg.vaddr and end <= seg.vaddr + seg.filesz:
+                    # strtab is contained completely within this segment
+                    new = strtab - seg.vaddr + seg.offset
+                    if found is not None and found != new:
+                        raise ValueError(
+                            "Inconsistent mapping: 0x{0:X}".format(strtab))
+                    found = new
+            
+            if found is None:
+                raise LookupError(
+                    "No segment found for 0x{0:X}".format(strtab))
+            
+            self.strtab = (found, strsz)
+        else:
+            self.strtab = None
+    
+    NEEDED = 1
+    STRTAB = 5
+    STRSZ = 10
+    SONAME = 14
+    RPATH = 15
+    RUNPATH = 29
+    
+    tag_attrs = dict(
+        rpath=RPATH, runpath=RUNPATH, soname=SONAME, needed=NEEDED,
+    ).items()
 
 @contextmanager
 def open(filename):
