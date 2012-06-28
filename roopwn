@@ -89,9 +89,7 @@ def main():
                         else:
                             break
                     
-                    if (not file.isfile() or
-                    file.name.startswith(".", start) or
-                    not file.mode & (S_IXUSR | S_IXGRP | S_IXOTH)):
+                    if not file.isfile() or file.name.startswith(".", start):
                         continue
                     
                     try:
