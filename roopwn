@@ -7,7 +7,7 @@ from sys import stderr
 from posixpath import basename
 from os import path
 import tarfile
-from os import fsdecode
+from os import (fsdecode, fsencode)
 from stat import (S_IXUSR, S_IXGRP, S_IXOTH)
 from os.path import splitext
 from lib import strip
@@ -16,7 +16,9 @@ from shutil import copyfileobj
 from gzip import GzipFile
 from bz2 import BZ2File
 from tempfile import TemporaryDirectory
-from objfile.deps import Deps
+from objfile.deps import (Deps, OsFilesystem, is_privileged)
+from functools import partial
+from os.path import exists
 
 try:
     from lzma import LZMAFile
@@ -93,13 +95,19 @@ def main():
                     if not member.isfile() or filename.startswith("."):
                         continue
                     
+                    #~ root = member.name[:start]
+                    fs = PackagesFs()
+                    file = tar.extractfile(member)
+                    origin = partial(fs.get_origin, fsencode(filename))
+                    privileged = is_privileged(member.mode)
+                    
                     try:
-                        deps = Deps(tar.extractfile(member), None, None)
+                        deps = Deps(file, origin, privileged)
                     except ValueError:
                         continue
                     
                     for interp in deps.interps():
-                        if not path.exists(interp):
+                        if not fs.exists(interp):
                             print("{}: {}: interp not found".format(
                                 filename, fsdecode(interp)), file=stderr)
                             fail = True
@@ -124,6 +132,10 @@ INPUT
         raise SystemExit(1)
     
     command("pacman --upgrade --".split() + pkgs)
+
+class PackagesFs(OsFilesystem):
+    def exists(self, path):
+        return exists(b"/" + path)
 
 def decompress(file, ext, dir):
     (decomp_file, comp_ext) = splitext(fsdecode(file))
