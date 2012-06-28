@@ -16,9 +16,12 @@ from shutil import copyfileobj
 from gzip import GzipFile
 from bz2 import BZ2File
 from tempfile import TemporaryDirectory
-from objfile.deps import (Deps, OsFilesystem, is_privileged, LibCache)
+from objfile.deps import (
+    Deps, Filesystem, OsFilesystem, is_privileged, LibCache,
+)
 from functools import partial
 from os.path import exists
+from errno import (EINVAL, ENOENT, ENOTDIR)
 from os import strerror
 
 try:
@@ -133,9 +136,85 @@ def main():
     
     command("pacman --upgrade --".split() + pkgs)
 
-class PackagesFs(OsFilesystem):
+class PackagesFs(Filesystem):
+    def __init__(self):
+        self.paths = dict()
+    
+    def add(self, tar):
+        for member in tar:
+            start = 0
+            while True:
+                for prefix in ("/", "./", "../"):
+                    if member.name.startswith(prefix, start):
+                        start += len(prefix)
+                        break
+                else:
+                    break
+            filename = member.name[start:]
+            
+            if filename.startswith("."):
+                continue
+            
+            key = fsencode(filename)
+            if key in self.paths:
+                if member.isdir():
+                    continue
+                raise ValueError("Duplicate packaged file: {filename}".
+                    format_map(locals()))
+            self.paths[key] = Record(tar=tar, name=member.name)
+    
+    # TODO: expand links in parent directories before looking up tar file members
+    
+    def open(self, path):
+        try:
+            file = self.paths[path]
+        except LookupError:
+            return OsFilesystem.open(self, path)
+        
+        file = file.tar.extractfile(file.tar.getmember(file.name))
+        if not file:
+            raise ErrNoError(EINVAL, path)
+        return file
+    
     def exists(self, path):
+        if path in self.paths:
+            return True
         return exists(b"/" + path)
+    
+    def readlink(self, path):
+        try:
+            member = self.paths[path]
+        except LookupError:
+            return OsFilesystem.readlink(self, path)
+        
+        member = member.tar.getmember(member.name)
+        if not member.issym():
+            raise ErrnoError(EINVAL, path)
+        return member.linkname
+    
+    def listdir(self, path):
+        pkg_dir = self.paths.get(path)
+        if pkg_dir and not pkg_dir.tar.getmember(pkg_dir.name).isdir():
+            raise ErrNoError(ENOTDIR, path)
+        
+        res = list()
+        prefix = path + b"/"
+        for entry in self.paths.keys():
+            try:
+                entry = strip(entry, prefix)
+            except ValueError:
+                continue
+            
+            if b"/" not in entry:
+                res.append(entry)
+        
+        try:
+            res.extend(OsFilesystem.listdir(self, path))
+        except EnvironmentError as err:
+            if err.errno != ENOENT or not pkg_dir:
+                raise
+        
+        return res
 
 def decompress(file, ext, dir):
     (decomp_file, comp_ext) = splitext(fsdecode(file))
