@@ -79,29 +79,29 @@ def main():
             print("\nAnalysing:", fsdecode(pkg), file=stderr)
             name = decompress(pkg, ".tar", work)
             with tarfile.open(name) as tar:
-                for file in tar:
+                for member in tar:
                     start = 0
                     while True:
                         for prefix in ("/", "./", "../"):
-                            if file.name.startswith(prefix, start):
+                            if member.name.startswith(prefix, start):
                                 start += len(prefix)
                                 break
                         else:
                             break
+                    filename = member.name[start:]
                     
-                    if not file.isfile() or file.name.startswith(".", start):
+                    if not member.isfile() or filename.startswith("."):
                         continue
                     
                     try:
-                        deps = Deps(tar.extractfile(file), None, None)
+                        deps = Deps(tar.extractfile(member), None, None)
                     except ValueError:
                         continue
                     
                     for interp in deps.interps():
                         if not path.exists(interp):
                             print("{}: {}: interp not found".format(
-                                file.name[start:], fsdecode(interp)),
-                                file=stderr)
+                                filename, fsdecode(interp)), file=stderr)
                             fail = True
     
     """
