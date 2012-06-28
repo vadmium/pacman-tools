@@ -83,47 +83,59 @@ def realpath(path):
         getcwd = os.getcwd
     root = sep
     
-    # The path is broken into components. Each component may resolve to a
-    # sub-path, and its components may require further resolution.
+    # Break the path into components. Working from the start out to the
+    # filename, check if each component is a link. Each link expands to a
+    # sub-path, and its components may require further expansion.
     
-    # Stack of component iterators for each sub-path being resolved
-    unres = [iter(path.split(sep))]
+    # Stack of iterators of path components to expand. Each stack level
+    # corresponds to the queue of unexpanded components of a link, or for the
+    # top couple of levels, the queue for the supplied path.
+    unexpanded = list()
+    unexpanded.append(iter(path.split(sep)))
+    
+    # If it is not an absolute path, insert the current directory
     if not isabs(path):
-        unres.append(iter(getcwd().split(sep)))
+        unexpanded.append(iter(getcwd().split(sep)))
     
-    links = []  # Stack of links names of sub-paths being resolved
-    resolved = []  # Fully resolved path components
-    while unres:
+    # Stack of each link name being expanded. If one of these is referenced
+    # during expansion, we know there would be a loop.
+    links = list()
+    
+    expanded = list()  # Fully expanded path components
+    while unexpanded:
         while True:
             try:
-                component = next(unres[-1])
+                component = next(unexpanded[-1])
             except StopIteration:
                 break
             if not component or component == dot:
                 continue
             if component == dotdot:
-                if resolved:
-                    resolved.pop()
+                if expanded:
+                    expanded.pop()
                 continue
             
-            resolved.append(component)
-            dir = root + sep.join(resolved)
-            if islink(dir):
-                if dir in links:
-                    while unres:
-                        resolved.extend(unres.pop())
-                    return root + sep.join(resolved)
-                resolved.pop()
-                links.append(dir)
-                target = os.readlink(dir)
-                unres.append(iter(target.split(sep)))
+            expanded.append(component)
+            subpath = root + sep.join(expanded)
+            if islink(subpath):
+                if subpath in links:
+                    # Loop detected: return the remaining path unexpanded
+                    while unexpanded:
+                        expanded.extend(unexpanded.pop())
+                    return root + sep.join(expanded)
+                links.append(subpath)
+                
+                target = os.readlink(subpath)
                 if isabs(target):
-                    resolved = []
+                    expanded = list()
+                else:
+                    expanded.pop()
+                unexpanded.append(iter(target.split(sep)))
         
-        unres.pop()
+        unexpanded.pop()
         if links:
             links.pop()
-    return root + sep.join(resolved)
+    return root + sep.join(expanded)
 
 class Thunk:
     def __init__(self, func, *args, **kw):
