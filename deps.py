@@ -68,62 +68,63 @@ class Deps(object):
             frags1.extend(f.split(subs[1]))
         return self.origin().join(frags1)
 
-def realpath(path, fs):
-    # Break the path into components. Working from the start out to the
-    # filename, check if each component is a link. Each link expands to a
-    # sub-path, and its components may require further expansion.
-    
-    # Stack of iterators of path components to expand. Each stack level
-    # corresponds to the queue of unexpanded components of a link, or for the
-    # top couple of levels, the queue for the supplied path.
-    unexpanded = list()
-    unexpanded.append(iter(path.split(b"/")))
-    
-    # Stack of each link name being expanded. If one of these is referenced
-    # during expansion, we know there would be a loop.
-    links = list()
-    
-    expanded = list()  # Fully expanded path components
-    while unexpanded:
-        while True:
-            try:
-                component = next(unexpanded[-1])
-            except StopIteration:
-                break
-            if not component or component == b".":
-                continue
-            if component == b"..":
-                if expanded:
-                    expanded.pop()
-                continue
-            
-            expanded.append(component)
-            subpath = b"/".join(expanded)
-            
-            if subpath in links:
-                # Loop detected: return the remaining path unexpanded
-                while unexpanded:
-                    expanded.extend(unexpanded.pop())
-                return b"/".join(expanded)
-            
-            try:
-                target = fs.readlink(subpath)
-            except EnvironmentError:
-                # Not a link, does not exist at all, or some other error
-                pass
-            else:
-                if isabs(target):
-                    expanded = list()
-                else:
-                    expanded.pop()
-                
-                links.append(subpath)
-                unexpanded.append(iter(target.split(b"/")))
+class Filesystem(object):
+    def realpath(self, path):
+        # Break the path into components. Working from the start out to the
+        # filename, check if each component is a link. Each link expands to a
+        # sub-path, and its components may require further expansion.
         
-        unexpanded.pop()
-        if links:
-            links.pop()
-    return b"/".join(expanded)
+        # Stack of iterators of path components to expand. Each stack level
+        # corresponds to the queue of unexpanded components of a link, or for
+        # the top couple of levels, the queue for the supplied path.
+        unexpanded = list()
+        unexpanded.append(iter(path.split(b"/")))
+        
+        # Stack of each link name being expanded. If one of these is
+        # referenced during expansion, we know there would be a loop.
+        links = list()
+        
+        expanded = list()  # Fully expanded path components
+        while unexpanded:
+            while True:
+                try:
+                    component = next(unexpanded[-1])
+                except StopIteration:
+                    break
+                if not component or component == b".":
+                    continue
+                if component == b"..":
+                    if expanded:
+                        expanded.pop()
+                    continue
+                
+                expanded.append(component)
+                subpath = b"/".join(expanded)
+                
+                if subpath in links:
+                    # Loop detected: return the remaining path unexpanded
+                    while unexpanded:
+                        expanded.extend(unexpanded.pop())
+                    return b"/".join(expanded)
+                
+                try:
+                    target = self.readlink(subpath)
+                except EnvironmentError:
+                    # Not a link, does not exist at all, or some other error
+                    pass
+                else:
+                    if isabs(target):
+                        expanded = list()
+                    else:
+                        expanded.pop()
+                    
+                    links.append(subpath)
+                    unexpanded.append(iter(target.split(b"/")))
+            
+            unexpanded.pop()
+            if links:
+                links.pop()
+        return b"/".join(expanded)
 
 class Thunk:
     def __init__(self, func, *args, **kw):
