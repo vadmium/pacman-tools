@@ -3,7 +3,7 @@
 from elf import Elf
 from lib import Record
 from os import environb
-from os.path import isabs
+from os.path import (isabs, dirname)
 
 class Deps(object):
     def __init__(self, file, origin, privileged):
@@ -69,6 +69,9 @@ class Deps(object):
         return self.origin().join(frags1)
 
 class Filesystem(object):
+    def get_origin(self, path):
+        return dirname(self.realpath(path))
+    
     def realpath(self, path):
         # Break the path into components. Working from the start out to the
         # filename, check if each component is a link. Each link expands to a

@@ -115,10 +115,6 @@ class ElfResolve:
             
             self.soname_paths[path] = sonames
         return os.path.join(path, self.soname_paths[path][needed])
-    
-    def get_origin(self):
-        origin = os.path.realpath(os.path.dirname(self.name))
-        return transplant(origin, old=os.path.realpath(self.root), new="/")
 
 def ldconfig_parse(root, conf):
     dirs = []
