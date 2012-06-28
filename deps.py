@@ -3,6 +3,7 @@
 from elf import Elf
 from lib import Record
 from os import environb
+from os.path import isabs
 
 class Deps(object):
     def __init__(self, file, origin, privileged):
@@ -67,22 +68,7 @@ class Deps(object):
             frags1.extend(f.split(subs[1]))
         return self.origin().join(frags1)
 
-import os
-from os.path import (isabs, islink)
-
-def realpath(path):
-    if isinstance(path, bytes):
-        sep = b'/'
-        dot = b'.'
-        dotdot = b'..'
-        getcwd = os.getcwdb
-    else:
-        sep = '/'
-        dot = '.'
-        dotdot = '..'
-        getcwd = os.getcwd
-    root = sep
-    
+def realpath(path, fs):
     # Break the path into components. Working from the start out to the
     # filename, check if each component is a link. Each link expands to a
     # sub-path, and its components may require further expansion.
@@ -91,11 +77,7 @@ def realpath(path):
     # corresponds to the queue of unexpanded components of a link, or for the
     # top couple of levels, the queue for the supplied path.
     unexpanded = list()
-    unexpanded.append(iter(path.split(sep)))
-    
-    # If it is not an absolute path, insert the current directory
-    if not isabs(path):
-        unexpanded.append(iter(getcwd().split(sep)))
+    unexpanded.append(iter(path.split(b"/")))
     
     # Stack of each link name being expanded. If one of these is referenced
     # during expansion, we know there would be a loop.
@@ -108,34 +90,40 @@ def realpath(path):
                 component = next(unexpanded[-1])
             except StopIteration:
                 break
-            if not component or component == dot:
+            if not component or component == b".":
                 continue
-            if component == dotdot:
+            if component == b"..":
                 if expanded:
                     expanded.pop()
                 continue
             
             expanded.append(component)
-            subpath = root + sep.join(expanded)
-            if islink(subpath):
-                if subpath in links:
-                    # Loop detected: return the remaining path unexpanded
-                    while unexpanded:
-                        expanded.extend(unexpanded.pop())
-                    return root + sep.join(expanded)
-                links.append(subpath)
-                
-                target = os.readlink(subpath)
+            subpath = b"/".join(expanded)
+            
+            if subpath in links:
+                # Loop detected: return the remaining path unexpanded
+                while unexpanded:
+                    expanded.extend(unexpanded.pop())
+                return b"/".join(expanded)
+            
+            try:
+                target = fs.readlink(subpath)
+            except EnvironmentError:
+                # Not a link, does not exist at all, or some other error
+                pass
+            else:
                 if isabs(target):
                     expanded = list()
                 else:
                     expanded.pop()
-                unexpanded.append(iter(target.split(sep)))
+                
+                links.append(subpath)
+                unexpanded.append(iter(target.split(b"/")))
         
         unexpanded.pop()
         if links:
             links.pop()
-    return root + sep.join(expanded)
+    return b"/".join(expanded)
 
 class Thunk:
     def __init__(self, func, *args, **kw):
