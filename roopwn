@@ -111,22 +111,17 @@ def main():
                             print("{}: {}: interp not found".format(
                                 filename, fsdecode(interp)), file=stderr)
                             fail = True
-    
-    """
-        local files file deps missing fail
-            needed="$(readelf --dynamic -- "$workfile")"
-            # TODO: handle dynamic entries with RPATH and RUNPATH tags
-            needed="$(sed -n \
-            's/^ *[^ ]\+ *(NEEDED) *Shared library: \[\([^]]*\)\].*$/\1/p' \
-                << INPUT
-$deps
-INPUT
-            )"
-            # TODO: handle absolute path; expand $ORIGIN
-            
-            echo >&2 "$file: needed: $deps"
-            fail=set
-    """
+                    
+                    for needed in deps.needed():
+                        if needed.search:
+                            print(filename, "needed", needed)
+                            fail = True
+                        else:
+                            if not fs.exists(needed.name):
+                                print("{}: {}: needed not found".format(
+                                    filename, fsdecode(needed.raw_name)),
+                                    file=stderr)
+                                fail = True
     
     if fail:
         raise SystemExit(1)
