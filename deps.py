@@ -4,6 +4,7 @@ from elf import Elf
 from lib import Record
 from os import environb
 from os.path import (isabs, dirname)
+from os import readlink
 
 class Deps(object):
     def __init__(self, file, origin, privileged):
@@ -128,6 +129,10 @@ class Filesystem(object):
             if links:
                 links.pop()
         return b"/".join(expanded)
+
+class OsFilesystem(Filesystem):
+    def readlink(self, path):
+        return readlink(b"/" + path)
 
 class Thunk:
     def __init__(self, func, *args, **kw):
