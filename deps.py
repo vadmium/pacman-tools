@@ -4,10 +4,12 @@ from elf import Elf
 from lib import Record
 from os import environb
 from os.path import (isabs, dirname)
-from os import readlink
+from os import (readlink, listdir)
 from stat import (S_ISUID, S_ISGID)
 from contextlib import closing
 from glob import iglob
+from os import path
+import fnmatch
 
 class Deps(object):
     def __init__(self, file, origin, privileged):
@@ -141,6 +143,11 @@ class Filesystem(object):
         config.dirs.extend((b"/lib", b"/usr/lib"))
         return config.dirs
     
+    def glob(self, pattern):
+        (dir, pattern) = path.split(pattern)
+        for entry in fnmatch.filter(self.listdir(dir), pattern):
+            yield path.join(dir, entry)
+    
     def realpath(self, path):
         # Break the path into components. Working from the start out to the
         # filename, check if each component is a link. Each link expands to a
@@ -199,8 +206,12 @@ class Filesystem(object):
         return b"/".join(expanded)
 
 class OsFilesystem(Filesystem):
+    def open(self, path):
+        return open(b"/" + path, "rb")
     def readlink(self, path):
         return readlink(b"/" + path)
+    def listdir(self, path):
+        return listdir(b"/" + path)
 
 class Thunk:
     def __init__(self, func, *args, **kw):
