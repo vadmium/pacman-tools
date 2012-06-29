@@ -59,12 +59,6 @@ class ElfResolve:
     
     def parse_dynamic(self, seg):
                 for path in self.search_paths():
-                    try:
-                        needed = self.search_sonames(path, needed)
-                    except LookupError:
-                        pass
-                    else:
-                        break
                 else:
                     print("\t{0} => not found".format(raw_needed))
                     continue

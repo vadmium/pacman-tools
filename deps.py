@@ -31,7 +31,25 @@ class Deps(object):
             name = self.sub_origin(entry)
             yield Record(search=b"/" not in name, name=name, raw_name=entry)
     
-    def search_dirs(self, deflibs):
+    def search_lib(self, lib, cache):
+        for dir in self.search_dirs(cache):
+            matches = cache.search(dir, self.elf, lib)
+            
+            # First preference to a match by filename and SO-name
+            if lib in matches.soname:
+                yield path.join(dir, lib)
+                matches.filename = False
+            
+            # Second preference to other SO-name matches
+            for file in matches.soname:
+                if file != lib:
+                    yield path.join(dir, file)
+            
+            # Last preference to a filename match with no matching SO-name
+            if matches.filename:
+                yield path.join(dir, lib)
+    
+    def search_dirs(self, cache):
         if not self.dynamic.runpath:
             for dirs in self.dynamic.rpath:
                 dirs = self.dynamic.read_str(dirs)
