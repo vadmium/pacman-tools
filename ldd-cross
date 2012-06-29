@@ -5,7 +5,6 @@ from __future__ import print_function
 
 from sys import argv
 import os
-from stat import (S_ISUID, S_ISGID)
 from glob import iglob
 import elf
 from lib import transplant
@@ -186,9 +185,6 @@ class LdConfigFile:
         return self.file.close(*args, **kw)
     
     SEPS = ": \t\r\n,"
-
-def is_privileged(name):
-    return os.stat(name).st_mode & (S_ISUID | S_ISGID)
 
 if "__main__" == __name__:
     main()

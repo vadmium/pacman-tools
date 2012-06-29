@@ -5,6 +5,7 @@ from lib import Record
 from os import environb
 from os.path import (isabs, dirname)
 from os import readlink
+from stat import (S_ISUID, S_ISGID)
 
 class Deps(object):
     def __init__(self, file, origin, privileged):
@@ -68,6 +69,9 @@ class Deps(object):
         for f in frags0:
             frags1.extend(f.split(subs[1]))
         return self.origin().join(frags1)
+
+def is_privileged(mode):
+    return mode & (S_ISUID | S_ISGID)
 
 class Filesystem(object):
     def get_origin(self, path):
