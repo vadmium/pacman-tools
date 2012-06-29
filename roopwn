@@ -16,7 +16,7 @@ from shutil import copyfileobj
 from gzip import GzipFile
 from bz2 import BZ2File
 from tempfile import TemporaryDirectory
-from objfile.deps import (Deps, OsFilesystem, is_privileged)
+from objfile.deps import (Deps, OsFilesystem, is_privileged, LibCache)
 from functools import partial
 from os.path import exists
 
@@ -75,6 +75,8 @@ def main():
                 pkgs.append(path.join(CACHEDIR, basename(pkg)))
     
     fail = False
+    fs = PackagesFs()
+    cache = LibCache(fs)
     
     with TemporaryDirectory(prefix="roopwn") as work:
         for pkg in pkgs:
@@ -96,7 +98,6 @@ def main():
                         continue
                     
                     #~ root = member.name[:start]
-                    fs = PackagesFs()
                     file = tar.extractfile(member)
                     origin = partial(fs.get_origin, fsencode(filename))
                     privileged = is_privileged(member.mode)
@@ -114,14 +115,17 @@ def main():
                     
                     for needed in deps.needed():
                         if needed.search:
-                            print(filename, "needed", needed)
-                            fail = True
+                            found = False
+                            for match in deps.search_lib(needed.name, cache):
+                                found = True
                         else:
-                            if not fs.exists(needed.name):
-                                print("{}: {}: needed not found".format(
-                                    filename, fsdecode(needed.raw_name)),
-                                    file=stderr)
-                                fail = True
+                            found = fs.exists(needed.name)
+                        
+                        if not found:
+                            print("{}: {}: needed not found".format(
+                                filename, fsdecode(needed.raw_name)),
+                                file=stderr)
+                            fail = True
     
     if fail:
         raise SystemExit(1)
