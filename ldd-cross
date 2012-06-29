@@ -7,7 +7,6 @@ from sys import argv
 import os
 import elf
 from lib import transplant
-from lib import Cleanup
 
 def main():
     (_, root) = argv[:2]
@@ -19,7 +18,6 @@ def main():
 
 class ElfResolve:
     def __init__(self, root, name):
-        self.soname_paths = dict()
         self.depends = set()
         exe_queue = [name]
         exe_seen = set(exe_queue)
@@ -77,42 +75,6 @@ class ElfResolve:
             if needed not in self.needed_seen:
                 self.needed_queue.append(needed)
                 self.needed_seen.add(needed)
-    
-    def search_sonames(self, path, needed):
-        if path not in self.soname_paths:
-            #~ print("Searching object path", path)
-            rebased = transplant(path, new=self.root)
-            sonames = dict()
-            
-            try:
-                list = os.listdir(rebased)
-            except EnvironmentError:
-                list = []
-            elfs = set()
-            for file in list:
-                with Cleanup() as cleanup:
-                    try:
-                        probe = cleanup(
-                            elf.FileRef(os.path.join(rebased, file)))
-                    except (EnvironmentError, ValueError):
-                        continue
-                    
-                    if not self.elf.matches(probe):
-                        continue
-                    
-                    elfs.add(file)
-                    for soname in probe.read_dyn_list(
-                    Thunk(probe.read_dynamic), "soname"):
-                        soname = soname.decode()
-                        if soname in sonames and soname != file:
-                            continue
-                        sonames[soname] = file
-            
-            sonames.update((file, file)
-                for file in elfs if file not in sonames)
-            
-            self.soname_paths[path] = sonames
-        return os.path.join(path, self.soname_paths[path][needed])
 
 if "__main__" == __name__:
     main()

@@ -10,6 +10,7 @@ from contextlib import closing
 from lib import strip
 from os import path
 import fnmatch
+from collections import defaultdict
 
 class Deps(object):
     def __init__(self, file, origin, privileged):
@@ -73,6 +74,49 @@ class Deps(object):
         for f in frags0:
             frags1.extend(f.split(subs[1]))
         return self.origin().join(frags1)
+
+class LibCache(object):
+    def __init__(self, fs):
+        self.fs = fs
+        self.cached_dirs = dict()
+    
+    def search(self, dir, elf, lib):
+        try:
+            cache = self.cached_dirs[dir]
+        except LookupError:
+            #~ print("Searching object path", path)
+            try:
+                entries = self.fs.listdir(dir)
+            except EnvironmentError:
+                entries = []
+            
+            cache = Record(sonames=defaultdict(set), filenames=set())
+            for filename in entries:
+                try:
+                    file = self.fs.open(path.join(dir, filename))
+                except EnvironmentError:
+                    continue
+                with closing(file):
+                    try:
+                        probe = Elf(file)
+                    except ValueError:
+                        continue
+                    if not elf.matches(probe):
+                        continue
+                    
+                    cache.filenames.add(filename)
+                    
+                    dynamic = probe.read_segments().read_dynamic()
+                    for soname in dynamic.soname:
+                        soname = dynamic.read_str(soname)
+                        cache.sonames[soname].add(filename)
+            
+            self.cached_dirs[dir] = cache
+        
+        return Record(
+            soname=cache.sonames.get(lib, set()),
+            filename=lib in cache.filenames,
+        )
 
 class LdConfig(object):
     """
