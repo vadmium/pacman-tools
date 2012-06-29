@@ -6,6 +6,8 @@ from os import environb
 from os.path import (isabs, dirname)
 from os import readlink
 from stat import (S_ISUID, S_ISGID)
+from contextlib import closing
+from glob import iglob
 
 class Deps(object):
     def __init__(self, file, origin, privileged):
@@ -70,12 +72,74 @@ class Deps(object):
             frags1.extend(f.split(subs[1]))
         return self.origin().join(frags1)
 
+class LdConfig(object):
+    def __init__(self, fs):
+        self.fs = fs
+        self.dirs = []
+    
+    def include(self, name):
+        with closing(LdConfigFile(name)) as file:
+            while True:
+                word = file.read_word()
+                if not word:
+                    break
+                
+                if word == b"include":
+                    inc = file.read_word()
+                    if not inc:
+                        raise TypeError("include at EOF")
+                    for inc in iglob(inc):
+                        self.include(inc)
+                    continue
+                
+                self.dirs.append(word)
+
+class LdConfigFile:
+    def __init__(self, name):
+        self.file = open(name, "rb")
+        try:
+            self.c = self.file.read(1)
+        except:
+            self.file.close()
+            raise
+    
+    def read_word(self):
+        while True:
+            if self.c == b"#":
+                while True:
+                    self.c = self.file.read(1)
+                    if not self.c or self.c in b"\r\n":
+                        break
+            
+            if not self.c or self.c not in self.SEPS:
+                break
+            
+            self.c = self.file.read(1)
+        
+        word = bytearray()
+        while self.c and self.c not in self.SEPS:
+            word.extend(self.c)
+            self.c = self.file.read(1)
+        
+        return bytes(word)
+    
+    def close(self, *args, **kw):
+        return self.file.close(*args, **kw)
+    
+    SEPS = b": \t\r\n,"
+
 def is_privileged(mode):
     return mode & (S_ISUID | S_ISGID)
 
 class Filesystem(object):
     def get_origin(self, path):
         return dirname(self.realpath(path))
+    
+    def parse_ld_config(self, conf=b"/etc/ld.so.conf"):
+        config = LdConfig(self)
+        config.include(conf)
+        config.dirs.extend((b"/lib", b"/usr/lib"))
+        return config.dirs
     
     def realpath(self, path):
         # Break the path into components. Working from the start out to the

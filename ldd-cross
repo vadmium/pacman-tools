@@ -5,7 +5,6 @@ from __future__ import print_function
 
 from sys import argv
 import os
-from glob import iglob
 import elf
 from lib import transplant
 from lib import Cleanup
@@ -114,77 +113,6 @@ class ElfResolve:
             
             self.soname_paths[path] = sonames
         return os.path.join(path, self.soname_paths[path][needed])
-
-def ldconfig_parse(root, conf):
-    dirs = []
-    incs = [iter((transplant(conf, new=root),))]
-    files = []
-    try:
-        while True:
-            try:
-                files.append(LdConfigFile(next(incs[-1])))
-            except StopIteration:
-                incs.pop()
-            
-            if not files:
-                break
-            
-            while True:
-                word = files[-1].read_word()
-                
-                if not word:
-                    files[-1].close()
-                    files.pop()
-                    break
-                
-                if word == "include":
-                    inc = files[-1].read_word()
-                    if not inc:
-                        raise TypeError("include at EOF")
-                    incs.append(iglob(transplant(inc, new=root)))
-                    break
-                
-                dirs.append(word)
-    finally:
-        while files:
-            files.pop().close()
-    
-    dirs.extend(("/lib", "/usr/lib"))
-    return dirs
-
-class LdConfigFile:
-    def __init__(self, name):
-        self.file = open(name)
-        try:
-            self.c = self.file.read(1)
-        except:
-            self.file.close()
-            raise
-    
-    def read_word(self):
-        while True:
-            if self.c == "#":
-                while True:
-                    self.c = self.file.read(1)
-                    if not self.c or self.c in "\r\n":
-                        break
-            
-            if not self.c or self.c not in self.SEPS:
-                break
-            
-            self.c = self.file.read(1)
-        
-        word = ""
-        while self.c and self.c not in self.SEPS:
-            word += self.c
-            self.c = self.file.read(1)
-        
-        return word
-    
-    def close(self, *args, **kw):
-        return self.file.close(*args, **kw)
-    
-    SEPS = ": \t\r\n,"
 
 if "__main__" == __name__:
     main()
