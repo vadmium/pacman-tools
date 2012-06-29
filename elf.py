@@ -166,6 +166,10 @@ class Elf:
     cause excessively long reads"""
     
     def read_segments(self):
+        if not self.phoff:
+            raise LookupError(
+                "ELF file does not have a program header (segment) table")
+        
         return Segments(self, self.phoff, self.phentsize, self.phnum)
     
     def dynamic_entries(self, sect):

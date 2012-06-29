@@ -126,9 +126,13 @@ class LibCache(object):
                     if not elf.matches(probe):
                         continue
                     
-                    cache.filenames.add(filename)
+                    try:
+                        probe = probe.read_segments()
+                    except LookupError:
+                        continue
                     
-                    dynamic = probe.read_segments().read_dynamic()
+                    cache.filenames.add(filename)
+                    dynamic = probe.read_dynamic()
                     for soname in dynamic.soname:
                         soname = dynamic.read_str(soname)
                         cache.sonames[soname].add(filename)
