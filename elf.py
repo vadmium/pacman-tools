@@ -65,10 +65,12 @@ class File:
     def matches(self, elf):
         # Ignore object file type field because it is unclear which types
         # should match
-        return all(getattr(self, name) == getattr(elf, name) for name in (
-            "elf_class", "data", "osabi", "abiversion",
+        if any(getattr(self, name) != getattr(elf, name) for name in (
+            "elf_class", "data", "abiversion",
             "machine", "version", "flags",
-        ))
+        )):
+            return False
+        return not self.osabi or self.osabi == elf.osabi
     
     SHN_UNDEF = 0
     SHN_XINDEX = 0xFFFF
