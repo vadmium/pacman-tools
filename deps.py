@@ -7,7 +7,7 @@ from os.path import (isabs, dirname)
 from os import (readlink, listdir)
 from stat import (S_ISUID, S_ISGID)
 from contextlib import closing
-from glob import iglob
+from lib import strip
 from os import path
 import fnmatch
 
@@ -75,30 +75,49 @@ class Deps(object):
         return self.origin().join(frags1)
 
 class LdConfig(object):
+    """
+    References:
+    http://man7.org/linux/man-pages/man8/ldconfig.8.html
+    http://www.daemon-systems.org/man/ld.so.conf.5.html
+    """
+    
     def __init__(self, fs):
         self.fs = fs
         self.dirs = []
     
     def include(self, name):
-        with closing(LdConfigFile(name)) as file:
+        with closing(LdConfigFile(self.fs, name)) as file:
             while True:
                 word = file.read_word()
                 if not word:
                     break
                 
                 if word == b"include":
-                    inc = file.read_word()
-                    if not inc:
-                        raise TypeError("include at EOF")
-                    for inc in iglob(inc):
+                    pattern = file.read_word()
+                    if not pattern:
+                        raise EOFError("include at EOF")
+                    
+                    try:
+                        pattern = strip(pattern, b"/")
+                    except ValueError:
+                        pattern = path.join(dirname(name), pattern)
+                    
+                    for inc in self.fs.glob(pattern):
                         self.include(inc)
+                    continue
+                
+                try:
+                    word = strip(word, b"/")
+                except ValueError:
+                    # BSD hardware dependent library directive line
+                    file.skip_line()
                     continue
                 
                 self.dirs.append(word)
 
 class LdConfigFile:
-    def __init__(self, name):
-        self.file = open(name, "rb")
+    def __init__(self, fs, name):
+        self.file = fs.open(name)
         try:
             self.c = self.file.read(1)
         except:
@@ -108,22 +127,25 @@ class LdConfigFile:
     def read_word(self):
         while True:
             if self.c == b"#":
-                while True:
-                    self.c = self.file.read(1)
-                    if not self.c or self.c in b"\r\n":
-                        break
-            
+                self.c = self.file.read(1)
+                self.skip_line()
             if not self.c or self.c not in self.SEPS:
                 break
             
             self.c = self.file.read(1)
         
         word = bytearray()
-        while self.c and self.c not in self.SEPS:
+        while self.c and self.c not in self.SEPS and self.c != b"#":
             word.extend(self.c)
             self.c = self.file.read(1)
         
         return bytes(word)
+    
+    def skip_line(self):
+        while True:
+            if not self.c or self.c in b"\r\n":
+                break
+            self.c = self.file.read(1)
     
     def close(self, *args, **kw):
         return self.file.close(*args, **kw)
@@ -137,10 +159,10 @@ class Filesystem(object):
     def get_origin(self, path):
         return dirname(self.realpath(path))
     
-    def parse_ld_config(self, conf=b"/etc/ld.so.conf"):
+    def parse_ld_config(self, conf=b"etc/ld.so.conf"):
         config = LdConfig(self)
         config.include(conf)
-        config.dirs.extend((b"/lib", b"/usr/lib"))
+        config.dirs.extend((b"lib", b"usr/lib"))
         return config.dirs
     
     def glob(self, pattern):
