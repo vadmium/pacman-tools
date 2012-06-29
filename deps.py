@@ -58,7 +58,7 @@ class Deps(object):
                 else:
                     yield dir.lstrip(b"/")
         
-        for dir in deflibs:
+        for dir in cache.config_dirs:
             yield dir
     
     def sub_origin(self, str):
@@ -79,6 +79,10 @@ class LibCache(object):
     def __init__(self, fs):
         self.fs = fs
         self.cached_dirs = dict()
+        
+        self.config_dirs = []
+        self.config_parse(b"etc/ld.so.conf")
+        self.config_dirs.extend((b"lib", b"usr/lib"))
     
     def search(self, dir, elf, lib):
         try:
@@ -117,19 +121,14 @@ class LibCache(object):
             soname=cache.sonames.get(lib, set()),
             filename=lib in cache.filenames,
         )
-
-class LdConfig(object):
-    """
-    References:
-    http://man7.org/linux/man-pages/man8/ldconfig.8.html
-    http://www.daemon-systems.org/man/ld.so.conf.5.html
-    """
     
-    def __init__(self, fs):
-        self.fs = fs
-        self.dirs = []
-    
-    def include(self, name):
+    def config_parse(self, name):
+        """
+        References:
+        http://man7.org/linux/man-pages/man8/ldconfig.8.html
+        http://www.daemon-systems.org/man/ld.so.conf.5.html
+        """
+        
         with closing(LdConfigFile(self.fs, name)) as file:
             while True:
                 word = file.read_word()
@@ -147,7 +146,7 @@ class LdConfig(object):
                         pattern = path.join(dirname(name), pattern)
                     
                     for inc in self.fs.glob(pattern):
-                        self.include(inc)
+                        self.config_parse(inc)
                     continue
                 
                 try:
@@ -157,7 +156,7 @@ class LdConfig(object):
                     file.skip_line()
                     continue
                 
-                self.dirs.append(word)
+                self.config_dirs.append(word)
 
 class LdConfigFile:
     def __init__(self, fs, name):
@@ -202,12 +201,6 @@ def is_privileged(mode):
 class Filesystem(object):
     def get_origin(self, path):
         return dirname(self.realpath(path))
-    
-    def parse_ld_config(self, conf=b"etc/ld.so.conf"):
-        config = LdConfig(self)
-        config.include(conf)
-        config.dirs.extend((b"lib", b"usr/lib"))
-        return config.dirs
     
     def glob(self, pattern):
         (dir, pattern) = path.split(pattern)
