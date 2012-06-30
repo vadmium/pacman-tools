@@ -21,6 +21,7 @@ from objfile.deps import (
 )
 from functools import partial
 from os.path import exists
+from lib import Cleanup
 from errno import (EINVAL, ENOENT, ENOTDIR)
 from os import strerror
 
@@ -78,58 +79,48 @@ def main():
                 (pkg,) = pkg.splitlines()
                 pkgs.append(path.join(CACHEDIR, basename(pkg)))
     
-    fail = False
-    fs = PackagesFs()
-    cache = LibCache(fs)
-    
-    with TemporaryDirectory(prefix="roopwn") as work:
+    with TemporaryDirectory(prefix="roopwn") as work, Cleanup() as cleanup:
+        fs = PackagesFs()
         for pkg in pkgs:
-            print("\nAnalysing:", fsdecode(pkg), file=stderr)
+            print("Extracting", fsdecode(pkg), file=stderr)
             name = decompress(pkg, ".tar", work)
-            with tarfile.open(name) as tar:
-                for member in tar:
-                    start = 0
-                    while True:
-                        for prefix in ("/", "./", "../"):
-                            if member.name.startswith(prefix, start):
-                                start += len(prefix)
-                                break
-                        else:
-                            break
-                    filename = member.name[start:]
-                    
-                    if not member.isfile() or filename.startswith("."):
-                        continue
-                    
-                    #~ root = member.name[:start]
-                    file = tar.extractfile(member)
-                    origin = partial(fs.get_origin, fsencode(filename))
-                    privileged = is_privileged(member.mode)
-                    
-                    try:
-                        deps = Deps(file, origin, privileged)
-                    except ValueError:
-                        continue
-                    
-                    for interp in deps.interps():
-                        if not fs.exists(interp):
-                            print("{}: {}: interp not found".format(
-                                filename, fsdecode(interp)), file=stderr)
-                            fail = True
-                    
-                    for needed in deps.needed():
-                        if needed.search:
-                            found = False
-                            for match in deps.search_lib(needed.name, cache):
-                                found = True
-                        else:
-                            found = fs.exists(needed.name)
-                        
-                        if not found:
-                            print("{}: {}: needed not found".format(
-                                filename, fsdecode(needed.raw_name)),
-                                file=stderr)
-                            fail = True
+            fs.add(cleanup(tarfile.open(name)))
+        
+        print("Analysing file dependencies", file=stderr)
+        fail = False
+        cache = LibCache(fs)
+        for (filename, entry) in fs.paths.items():
+            member = entry.tar.getmember(entry.name)
+            if not member.isfile():
+                continue
+            
+            file = entry.tar.extractfile(member)
+            origin = partial(fs.get_origin, filename)
+            privileged = is_privileged(member.mode)
+            try:
+                deps = Deps(file, origin, privileged)
+            except ValueError:
+                continue
+            
+            for interp in deps.interps():
+                if not fs.exists(interp):
+                    print("{}: {}: interp not found".format(
+                        fsdecode(filename), fsdecode(interp)), file=stderr)
+                    fail = True
+            
+            for needed in deps.needed():
+                if needed.search:
+                    found = False
+                    for match in deps.search_lib(needed.name, cache):
+                        found = True
+                else:
+                    found = fs.exists(needed.name)
+                
+                if not found:
+                    print("{}: {}: needed not found".format(
+                        fsdecode(filename), fsdecode(needed.raw_name)),
+                        file=stderr)
+                    fail = True
     
     if fail:
         raise SystemExit(1)
