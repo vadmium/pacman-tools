@@ -19,6 +19,7 @@ from tempfile import TemporaryDirectory
 from objfile.deps import (Deps, OsFilesystem, is_privileged, LibCache)
 from functools import partial
 from os.path import exists
+from os import strerror
 
 try:
     from lzma import LZMAFile
@@ -208,6 +209,9 @@ class command_pipe(Popen):
 
 def command_trace(args):
     print("+", " ".join(args), file=stderr)
+
+def ErrNoError(errno, *args, **kw):
+    return EnvironmentError(errno, strerror(errno), *args, **kw)
 
 if __name__ == "__main__":
     main()
