@@ -16,9 +16,7 @@ from shutil import copyfileobj
 from gzip import GzipFile
 from bz2 import BZ2File
 from tempfile import TemporaryDirectory
-from objfile.deps import (
-    Deps, Filesystem, OsFilesystem, is_privileged, LibCache,
-)
+from deps import (Deps, Filesystem, OsFilesystem, is_privileged, LibCache)
 from functools import partial
 from os.path import exists
 from lib import Cleanup
