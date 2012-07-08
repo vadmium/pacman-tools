@@ -24,6 +24,7 @@ from os.path import exists
 from lib import Cleanup
 from errno import (EINVAL, ENOENT, ENOTDIR)
 from os import strerror
+from signal import (signal, SIGINT, SIGQUIT, SIG_IGN)
 
 try:
     from lzma import LZMAFile
@@ -246,16 +247,45 @@ comp_types = dict(
 )
 
 def command(proc_args, *popen_args, trace=False, **kw):
+    """
+    Similar to Posix's system() function. It should ignore interrupt and quit
+    signals that would normally also be sent to the child process
+    """
+    
     if trace:
         command_trace(proc_args)
     
     try:
-        check_call(proc_args, *popen_args, **kw)
+        with IgnoreSigs() as sigs:
+            check_call(proc_args, *popen_args, preexec_fn=sigs.__exit__,
+                **kw)
     except CalledProcessError as e:
         if trace:
             raise SystemExit(e)
         else:
             raise SystemExit(e.returncode)
+
+class IgnoreSigs(object):
+    # Sounds like a recipe for a race condition, but there doesn't seem to be
+    # a way to avoid it. Gnu C library:
+    # http://sourceware.org/git?p=glibc.git;a=blob;f=sysdeps/posix/system.c
+    
+    def __enter__(self):
+        self.int = None
+        self.quit = None
+        try:
+            self.int = signal(SIGINT, SIG_IGN)
+            self.quit = signal(SIGQUIT, SIG_IGN)
+            return self
+        except:
+            self.__exit__()
+            raise
+    
+    def __exit__(self, *args, **kw):
+        if self.int is not None:
+            signal(SIGINT, self.int)
+        if self.quit is not None:
+            signal(SIGQUIT, self.quit)
 
 class command_pipe(Popen):
     def __init__(self,
