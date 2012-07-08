@@ -1,0 +1,317 @@
+#! /usr/bin/env python3
+
+from sys import argv
+from subprocess import (check_call, Popen, CalledProcessError)
+import subprocess
+from sys import stderr
+from posixpath import basename
+from os import path
+import tarfile
+from os import (fsdecode, fsencode)
+from stat import (S_IXUSR, S_IXGRP, S_IXOTH)
+from os.path import splitext
+from lib import strip
+from lib import Record
+from shutil import copyfileobj
+from gzip import GzipFile
+from bz2 import BZ2File
+from tempfile import TemporaryDirectory
+from objfile.deps import (
+    Deps, Filesystem, OsFilesystem, is_privileged, LibCache,
+)
+from functools import partial
+from os.path import exists
+from lib import Cleanup
+from errno import (EINVAL, ENOENT, ENOTDIR)
+from os import strerror
+from signal import (signal, SIGINT, SIGQUIT, SIG_IGN)
+
+try:
+    from lzma import LZMAFile
+except ImportError:
+    from contextlib import contextmanager
+    @contextmanager
+    def LZMAFile(filename):
+        with Popen("xz --decompress --stdout --".split() + [filename],
+        stdout=subprocess.PIPE) as xz:
+            yield xz.stdout
+
+CACHEDIR = b"/var/cache/pacman/pkg"
+
+def main():
+    through = list()
+    refresh = []
+    sync = []
+    upgrade = []
+    args = iter(argv[1:])
+    for arg in args:
+        while True:
+            strung = arg.startswith("-") and arg[1] != "-" and len(arg) > 2
+            if strung:
+                opt = arg[:1 + 1]
+            else:
+                opt = arg
+            
+            if opt in ("-S", "--sync"):
+                sync.append(opt)
+            elif opt in ("-y", "--refresh"):
+                refresh.append(opt)
+            elif opt in ("-U", "--upgrade"):
+                upgrade.append(opt)
+            else:
+                through.append(arg)
+                through.extend(args)
+                break
+            
+            if strung:
+                arg = "-" + arg[1 + 1:]
+            else:
+                break
+    
+    if upgrade:
+        pkgs = through
+    else:
+        command(["pacman"] + sync + refresh + ["--downloadonly"] + through)
+        
+        pkgs = list()
+        with command_pipe(["pacman"] + sync + ["--print"] + through,
+        stdout=subprocess.PIPE) as pacman:
+            for pkg in pacman.stdout:
+                (pkg,) = pkg.splitlines()
+                pkgs.append(path.join(CACHEDIR, basename(pkg)))
+    
+    with TemporaryDirectory(prefix="roopwn") as work, Cleanup() as cleanup:
+        fs = PackagesFs()
+        for pkg in pkgs:
+            print("Extracting", fsdecode(pkg), file=stderr)
+            name = decompress(pkg, ".tar", work)
+            fs.add(cleanup(tarfile.open(name)))
+        
+        print("Analysing file dependencies", file=stderr)
+        fail = False
+        cache = LibCache(fs)
+        for (filename, entry) in fs.paths.items():
+            member = entry.tar.getmember(entry.name)
+            if not member.isfile():
+                continue
+            
+            file = entry.tar.extractfile(member)
+            origin = partial(fs.get_origin, filename)
+            privileged = is_privileged(member.mode)
+            try:
+                deps = Deps(file, origin, privileged)
+            except ValueError:
+                continue
+            
+            for interp in deps.interps():
+                if not fs.exists(interp):
+                    print("{}: {}: interp not found".format(
+                        fsdecode(filename), fsdecode(interp)), file=stderr)
+                    fail = True
+            
+            for needed in deps.needed():
+                if needed.search:
+                    found = False
+                    for match in deps.search_lib(needed.name, cache):
+                        found = True
+                else:
+                    found = fs.exists(needed.name)
+                
+                if not found:
+                    print("{}: {}: needed not found".format(
+                        fsdecode(filename), fsdecode(needed.raw_name)),
+                        file=stderr)
+                    fail = True
+    
+    if fail:
+        raise SystemExit(1)
+    
+    command("pacman --upgrade --".split() + pkgs)
+
+class PackagesFs(Filesystem):
+    def __init__(self):
+        self.paths = dict()
+    
+    def add(self, tar):
+        for member in tar:
+            start = 0
+            while True:
+                for prefix in ("/", "./", "../"):
+                    if member.name.startswith(prefix, start):
+                        start += len(prefix)
+                        break
+                else:
+                    break
+            filename = member.name[start:]
+            
+            if filename.startswith("."):
+                continue
+            
+            key = fsencode(filename)
+            if key in self.paths:
+                if member.isdir():
+                    continue
+                raise ValueError("Duplicate packaged file: {filename}".
+                    format_map(locals()))
+            self.paths[key] = Record(tar=tar, name=member.name)
+    
+    # TODO: expand links in parent directories before looking up tar file members
+    
+    def open(self, path):
+        try:
+            file = self.paths[path]
+        except LookupError:
+            return OsFilesystem.open(self, path)
+        
+        file = file.tar.extractfile(file.tar.getmember(file.name))
+        if not file:
+            raise ErrNoError(EINVAL, path)
+        return file
+    
+    def exists(self, path):
+        if path in self.paths:
+            return True
+        return exists(b"/" + path)
+    
+    def readlink(self, path):
+        try:
+            member = self.paths[path]
+        except LookupError:
+            return OsFilesystem.readlink(self, path)
+        
+        member = member.tar.getmember(member.name)
+        if not member.issym():
+            raise ErrnoError(EINVAL, path)
+        return member.linkname
+    
+    def listdir(self, path):
+        pkg_dir = self.paths.get(path)
+        if pkg_dir and not pkg_dir.tar.getmember(pkg_dir.name).isdir():
+            raise ErrNoError(ENOTDIR, path)
+        
+        res = list()
+        prefix = path + b"/"
+        for entry in self.paths.keys():
+            try:
+                entry = strip(entry, prefix)
+            except ValueError:
+                continue
+            
+            if b"/" not in entry:
+                res.append(entry)
+        
+        try:
+            res.extend(OsFilesystem.listdir(self, path))
+        except EnvironmentError as err:
+            if err.errno != ENOENT or not pkg_dir:
+                raise
+        
+        return res
+
+def decompress(file, ext, dir):
+    (decomp_file, comp_ext) = splitext(fsdecode(file))
+    
+    try:
+        comp_ext = strip(comp_ext, ".")
+    except ValueError:
+        return file
+    
+    try:
+        type = comp_types[comp_ext]
+    except LookupError:
+        return file
+    
+    decomp_file = basename(decomp_file)
+    try:
+        ext = type.ext
+    except AttributeError:
+        (_, ext2) = splitext(decomp_file)
+        if ext2 == ext:
+            ext = ""
+    else:
+        ext = "." + ext
+    
+    decomp_file = path.join(dir, decomp_file + ext)
+    
+    with type.comp(file) as src:
+        with open(decomp_file, "wb") as dest:
+            copyfileobj(src, dest)
+    
+    return decomp_file
+
+comp_types = dict(
+    gz=Record(comp=GzipFile), tgz=Record(comp=GzipFile, ext="tar"),
+    bz2=Record(comp=BZ2File), tbz=Record(comp=BZ2File, ext="tar"),
+    lzma=Record(comp=LZMAFile),
+    xz=Record(comp=LZMAFile), txz=Record(comp=LZMAFile, ext="tar"),
+)
+
+def command(proc_args, *popen_args, trace=False, **kw):
+    """
+    Similar to Posix's system() function. It should ignore interrupt and quit
+    signals that would normally also be sent to the child process
+    """
+    
+    if trace:
+        command_trace(proc_args)
+    
+    try:
+        with IgnoreSigs() as sigs:
+            check_call(proc_args, *popen_args, preexec_fn=sigs.__exit__,
+                **kw)
+    except CalledProcessError as e:
+        if trace:
+            raise SystemExit(e)
+        else:
+            raise SystemExit(e.returncode)
+
+class IgnoreSigs(object):
+    # Sounds like a recipe for a race condition, but there doesn't seem to be
+    # a way to avoid it. Gnu C library:
+    # http://sourceware.org/git?p=glibc.git;a=blob;f=sysdeps/posix/system.c
+    
+    def __enter__(self):
+        self.int = None
+        self.quit = None
+        try:
+            self.int = signal(SIGINT, SIG_IGN)
+            self.quit = signal(SIGQUIT, SIG_IGN)
+            return self
+        except:
+            self.__exit__()
+            raise
+    
+    def __exit__(self, *args, **kw):
+        if self.int is not None:
+            signal(SIGINT, self.int)
+        if self.quit is not None:
+            signal(SIGQUIT, self.quit)
+
+class command_pipe(Popen):
+    def __init__(self,
+    proc_args, *popen_args, bufsize=-1, trace=False, **kw):
+        self.trace = trace
+        if self.trace:
+            self.arg0 = proc_args[0]
+            command_trace(proc_args)
+        
+        Popen.__init__(self, proc_args, *popen_args, bufsize=bufsize, **kw)
+    
+    def wait(self, *args, **kw):
+        returncode = Popen.wait(self, *args, **kw)
+        if returncode:
+            if self.trace:
+                raise SystemExit("Command {self.arg0!r} failed "
+                    "with exit status {returncode}".format_map(locals()))
+            else:
+                raise SystemExit(returncode)
+        return returncode
+
+def command_trace(args):
+    print("+", " ".join(args), file=stderr)
+
+def ErrNoError(errno, *args, **kw):
+    return EnvironmentError(errno, strerror(errno), *args, **kw)
+
+if __name__ == "__main__":
+    main()
