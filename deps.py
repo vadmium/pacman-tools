@@ -32,24 +32,18 @@ class Deps(object):
             yield Record(search=b"/" not in name, name=name, raw_name=entry)
     
     def search_lib(self, lib, cache):
-        for dir in self.search_dirs(cache):
-            matches = cache.search(dir, self.elf, lib)
+        for dir in self.search_dirs(cache.config_dirs):
+            filename = path.join(dir, lib)
             
-            # First preference to a match by filename and SO-name
-            if lib in matches.soname:
-                yield path.join(dir, lib)
-                matches.filename = False
-            
-            # Second preference to other SO-name matches
-            for file in matches.soname:
-                if file != lib:
-                    yield path.join(dir, file)
-            
-            # Last preference to a filename match with no matching SO-name
-            if matches.filename:
-                yield path.join(dir, lib)
+            try:
+                file = cache.fs.open(filename)
+            except EnvironmentError:
+                continue
+            with closing(file):
+                if self.elf.matches(Elf(file)):
+                    yield filename
     
-    def search_dirs(self, cache):
+    def search_dirs(self, config_dirs):
         if not self.dynamic.runpath:
             for dirs in self.dynamic.rpath:
                 dirs = self.dynamic.read_str(dirs)
@@ -76,7 +70,7 @@ class Deps(object):
                 else:
                     yield dir.lstrip(b"/")
         
-        for dir in cache.config_dirs:
+        for dir in config_dirs:
             yield dir
     
     def sub_origin(self, str):
@@ -96,53 +90,10 @@ class Deps(object):
 class LibCache(object):
     def __init__(self, fs):
         self.fs = fs
-        self.cached_dirs = dict()
         
         self.config_dirs = []
         self.config_parse(b"etc/ld.so.conf")
         self.config_dirs.extend((b"lib", b"usr/lib"))
-    
-    def search(self, dir, elf, lib):
-        try:
-            cache = self.cached_dirs[dir]
-        except LookupError:
-            #~ print("Searching object path", path)
-            try:
-                entries = self.fs.listdir(dir)
-            except EnvironmentError:
-                entries = []
-            
-            cache = Record(sonames=defaultdict(set), filenames=set())
-            for filename in entries:
-                try:
-                    file = self.fs.open(path.join(dir, filename))
-                except EnvironmentError:
-                    continue
-                with closing(file):
-                    try:
-                        probe = Elf(file)
-                    except ValueError:
-                        continue
-                    if not elf.matches(probe):
-                        continue
-                    
-                    try:
-                        probe = probe.read_segments()
-                    except LookupError:
-                        continue
-                    
-                    cache.filenames.add(filename)
-                    dynamic = probe.read_dynamic()
-                    for soname in dynamic.soname:
-                        soname = dynamic.read_str(soname)
-                        cache.sonames[soname].add(filename)
-            
-            self.cached_dirs[dir] = cache
-        
-        return Record(
-            soname=cache.sonames.get(lib, set()),
-            filename=lib in cache.filenames,
-        )
     
     def config_parse(self, name):
         """
