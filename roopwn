@@ -87,7 +87,7 @@ def main():
         fs = PackagesFs()
         for pkg in pkgs:
             name = decompress(pkg, ".tar", work)
-            fs.add(cleanup(tarfile.open(name)))
+            fs.add(pkg, cleanup(tarfile.open(name)))
         
         fail = False
         cache = LibCache(fs)
@@ -122,6 +122,21 @@ def main():
                     print("{}: {}: needed not found".format(
                         fsdecode(filename), fsdecode(needed.raw_name)),
                         file=stderr)
+                    
+                    (dir, so) = path.split(needed.name)
+                    try:
+                        so = so.rsplit(b".so.", 1)[-2]
+                    except IndexError:
+                        pass
+                    else:
+                        so = path.join(dir, so + b".so")
+                        if needed.search:
+                            for match in deps.search_lib(so, cache):
+                                fs.owner(match)
+                        else:
+                            if fs.exists(so):
+                                fs.owner(so)
+                    
                     fail = True
     
     if fail:
@@ -134,7 +149,7 @@ class PackagesFs(Filesystem):
     def __init__(self):
         self.paths = dict()
     
-    def add(self, tar):
+    def add(self, pkg, tar):
         for member in tar:
             start = 0
             while True:
@@ -155,7 +170,7 @@ class PackagesFs(Filesystem):
                     continue
                 raise ValueError("Duplicate packaged file: {filename}".
                     format_map(locals()))
-            self.paths[key] = Record(tar=tar, member=member)
+            self.paths[key] = Record(pkg=pkg, tar=tar, member=member)
     
     # TODO: expand links in parent directories before looking up tar file members
     
@@ -208,6 +223,18 @@ class PackagesFs(Filesystem):
                 raise
         
         return res
+    
+    def owner(self, path):
+        try:
+            pkg = self.paths[path].pkg
+        except LookupError:
+            stderr.write(":: ")
+            stderr.flush()
+            command("pacman --query --owns --".split() + [b"/" + path])
+        else:
+            pkg = basename(pkg).rsplit(".pkg.", 1)[-2]
+            print(":: {} would be installed by {}".format(
+                fsdecode(path), fsdecode(pkg)), file=stderr)
 
 def decompress(file, ext, dir):
     (decomp_file, comp_ext) = splitext(fsdecode(file))
