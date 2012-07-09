@@ -93,7 +93,7 @@ def main():
         fail = False
         cache = LibCache(fs)
         for (filename, entry) in fs.paths.items():
-            member = entry.tar.getmember(entry.name)
+            member = entry.member
             if not member.isfile():
                 continue
             
@@ -156,7 +156,7 @@ class PackagesFs(Filesystem):
                     continue
                 raise ValueError("Duplicate packaged file: {filename}".
                     format_map(locals()))
-            self.paths[key] = Record(tar=tar, name=member.name)
+            self.paths[key] = Record(tar=tar, member=member)
     
     # TODO: expand links in parent directories before looking up tar file members
     
@@ -166,7 +166,7 @@ class PackagesFs(Filesystem):
         except LookupError:
             return OsFilesystem.open(self, path)
         
-        file = file.tar.extractfile(file.tar.getmember(file.name))
+        file = file.tar.extractfile(file.member)
         if not file:
             raise ErrNoError(EINVAL, path)
         return file
@@ -178,18 +178,17 @@ class PackagesFs(Filesystem):
     
     def readlink(self, path):
         try:
-            member = self.paths[path]
+            member = self.paths[path].member
         except LookupError:
             return OsFilesystem.readlink(self, path)
         
-        member = member.tar.getmember(member.name)
         if not member.issym():
             raise ErrnoError(EINVAL, path)
         return member.linkname
     
     def listdir(self, path):
         pkg_dir = self.paths.get(path)
-        if pkg_dir and not pkg_dir.tar.getmember(pkg_dir.name).isdir():
+        if pkg_dir and not pkg_dir.member.isdir():
             raise ErrNoError(ENOTDIR, path)
         
         res = list()
