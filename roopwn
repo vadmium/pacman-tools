@@ -41,6 +41,8 @@ def main():
     refresh = []
     sync = []
     upgrade = []
+    dryrun = False
+    
     args = iter(argv[1:])
     for arg in args:
         while True:
@@ -56,6 +58,8 @@ def main():
                 refresh.append(opt)
             elif opt in ("-U", "--upgrade"):
                 upgrade.append(opt)
+            elif opt == "-n":
+                dryrun = True
             else:
                 through.append(arg)
                 through.extend(args)
@@ -124,7 +128,8 @@ def main():
     if fail:
         raise SystemExit(1)
     
-    command("pacman --upgrade --".split() + pkgs)
+    if not dryrun:
+        command("pacman --upgrade --".split() + pkgs)
 
 class PackagesFs(Filesystem):
     def __init__(self):
