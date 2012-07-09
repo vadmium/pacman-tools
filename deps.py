@@ -34,14 +34,9 @@ class Deps(object):
     def search_lib(self, lib, cache):
         for dir in self.search_dirs(cache.config_dirs):
             filename = path.join(dir, lib)
-            
-            try:
-                file = cache.fs.open(filename)
-            except EnvironmentError:
-                continue
-            with closing(file):
-                if self.elf.matches(Elf(file)):
-                    yield filename
+            elf = cache.lookup(filename)
+            if elf and self.elf.matches(elf):
+                yield filename
     
     def search_dirs(self, config_dirs):
         if not self.dynamic.runpath:
@@ -90,6 +85,7 @@ class Deps(object):
 class LibCache(object):
     def __init__(self, fs):
         self.fs = fs
+        self.cache = dict()
         
         self.config_dirs = []
         self.config_parse(b"etc/ld.so.conf")
@@ -130,6 +126,27 @@ class LibCache(object):
                     continue
                 
                 self.config_dirs.append(word)
+    
+    def lookup(self, filename):
+        try:
+            return self.cache[filename]
+        except LookupError:
+            pass
+        
+        try:
+            file = self.fs.open(filename)
+        except EnvironmentError:
+            res = None
+        else:
+            with closing(file):
+                elf = Elf(file)
+                res = Record((attr, getattr(elf, attr)) for attr in (
+                    "elf_class", "data", "osabi", "abiversion", "machine",
+                    "version", "flags",
+                ))
+        
+        self.cache[filename] = res
+        return res
 
 class LdConfigFile:
     def __init__(self, fs, name):
