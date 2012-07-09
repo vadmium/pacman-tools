@@ -83,13 +83,12 @@ def main():
                 pkgs.append(path.join(CACHEDIR, basename(pkg)))
     
     with TemporaryDirectory(prefix="roopwn") as work, Cleanup() as cleanup:
+        print("analysing file dependencies...", file=stderr)
         fs = PackagesFs()
         for pkg in pkgs:
-            print("Extracting", fsdecode(pkg), file=stderr)
             name = decompress(pkg, ".tar", work)
             fs.add(cleanup(tarfile.open(name)))
         
-        print("Analysing file dependencies", file=stderr)
         fail = False
         cache = LibCache(fs)
         for (filename, entry) in fs.paths.items():
