@@ -270,9 +270,15 @@ class PackagesFs(Filesystem):
             stderr.flush()
             command("pacman --query --owns --".split() + [b"/" + path])
         else:
-            pkg = basename(pkg).rsplit(".pkg.", 1)[-2]
+            pkg = pkg_parse(pkg)
             print(":: {} would be installed by {}".format(
                 fsdecode(path), fsdecode(pkg)), file=stderr)
+
+def pkg_parse(name):
+    PKG = ".pkg."
+    if isinstance(name, bytes):
+        PKG = fsencode(PKG)
+    return basename(name).rsplit(PKG, 1)[-2]
 
 def decompress(file, ext, dir):
     (decomp_file, comp_ext) = splitext(fsdecode(file))
