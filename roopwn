@@ -270,15 +270,19 @@ class PackagesFs(Filesystem):
             stderr.flush()
             command("pacman --query --owns --".split() + [b"/" + path])
         else:
-            pkg = pkg_parse(pkg)
-            print(":: {} would be installed by {}".format(
-                fsdecode(path), fsdecode(pkg)), file=stderr)
+            (pkg, ver) = pkg_parse(pkg)
+            print(":: {} would be installed by {} {}".format(
+                fsdecode(path), fsdecode(pkg), fsdecode(ver)), file=stderr)
 
 def pkg_parse(name):
     PKG = ".pkg."
+    DASH = "-"
     if isinstance(name, bytes):
         PKG = fsencode(PKG)
-    return basename(name).rsplit(PKG, 1)[-2]
+        DASH = fsencode(DASH)
+    name = basename(name).rsplit(PKG, 1)[-2]
+    (name, ver, rel, _) = name.rsplit(DASH, 3)
+    return (name, DASH.join((ver, rel)))
 
 def decompress(file, ext, dir):
     (decomp_file, comp_ext) = splitext(fsdecode(file))
