@@ -165,8 +165,10 @@ def main():
         raise SystemExit(1)
     
     if not dryrun:
-        pacman = "pacman --upgrade".split() + xaction_args
-        command(pacman + ["--"] + pkgs)
+        pacman = "pacman --upgrade".split()
+        if not upgrade:
+            pacman.append("--noconfirm")
+        command(pacman + xaction_args + ["--"] + pkgs)
         anal.write_db()
 
 class Analyser(object):
