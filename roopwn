@@ -82,41 +82,54 @@ def main():
                 (pkg,) = pkg.splitlines()
                 pkgs.append(path.join(CACHEDIR, basename(pkg)))
     
+    anal = Analyser()
     with TemporaryDirectory(prefix="roopwn") as work, Cleanup() as cleanup:
         print("analysing file dependencies...", file=stderr)
-        fs = PackagesFs()
         for pkg in pkgs:
             name = decompress(pkg, ".tar", work)
-            fs.add(pkg, cleanup(tarfile.open(name)))
+            anal.fs.add(pkg, cleanup(tarfile.open(name)))
         
-        fail = False
-        cache = LibCache(fs)
-        for (filename, entry) in fs.paths.items():
+        for (filename, entry) in anal.fs.paths.items():
             member = entry.member
             if not member.isfile():
                 continue
             
             file = entry.tar.extractfile(member)
-            origin = partial(fs.get_origin, filename)
-            privileged = is_privileged(member.mode)
+            anal.analyse(file, filename, member.mode)
+    
+    if anal.fail:
+        raise SystemExit(1)
+    
+    if not dryrun:
+        command("pacman --upgrade --".split() + pkgs)
+
+class Analyser(object):
+    def __init__(self):
+        self.fs = PackagesFs()
+        self.fail = False
+        self.cache = LibCache(self.fs)
+    
+    def analyse(self, file, filename, mode):
+            origin = partial(self.fs.get_origin, filename)
+            privileged = is_privileged(mode)
             try:
                 deps = Deps(file, origin, privileged)
             except ValueError:
-                continue
+                return
             
             for interp in deps.interps():
-                if not fs.exists(interp):
+                if not self.fs.exists(interp):
                     print("{}: {}: interp not found".format(
                         fsdecode(filename), fsdecode(interp)), file=stderr)
-                    fail = True
+                    self.fail = True
             
             for needed in deps.needed():
                 if needed.search:
                     found = False
-                    for match in deps.search_lib(needed.name, cache):
+                    for match in deps.search_lib(needed.name, self.cache):
                         found = True
                 else:
-                    found = fs.exists(needed.name)
+                    found = self.fs.exists(needed.name)
                 
                 if not found:
                     print("{}: {}: needed not found".format(
@@ -131,19 +144,13 @@ def main():
                     else:
                         so = path.join(dir, so + b".so")
                         if needed.search:
-                            for match in deps.search_lib(so, cache):
-                                fs.owner(match)
+                            for match in deps.search_lib(so, self.cache):
+                                self.fs.owner(match)
                         else:
-                            if fs.exists(so):
-                                fs.owner(so)
+                            if self.fs.exists(so):
+                                self.fs.owner(so)
                     
-                    fail = True
-    
-    if fail:
-        raise SystemExit(1)
-    
-    if not dryrun:
-        command("pacman --upgrade --".split() + pkgs)
+                    self.fail = True
 
 class PackagesFs(Filesystem):
     def __init__(self):
