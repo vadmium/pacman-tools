@@ -23,6 +23,7 @@ from lib import Cleanup
 from errno import (EINVAL, ENOENT, ENOTDIR)
 from os import strerror
 from signal import (signal, SIGINT, SIGQUIT, SIG_IGN)
+from collections import defaultdict
 
 try:
     from lzma import LZMAFile
@@ -102,9 +103,16 @@ def main():
     
     if not dryrun:
         command("pacman --upgrade --".split() + pkgs)
+        anal.write_db()
 
 class Analyser(object):
     def __init__(self):
+        # A set of dependent ("client") files for each independent
+        # ("supplier") file. Some dependent files may no longer actually
+        # exist or be dependent, because they are not delisted when their
+        # package is touched.
+        self.deps = defaultdict(set)
+        
         self.fs = PackagesFs()
         self.fail = False
         self.cache = LibCache(self.fs)
@@ -118,20 +126,26 @@ class Analyser(object):
             return
         
         for interp in deps.interps():
-            if not self.fs.exists(interp):
+            if self.fs.exists(interp):
+                self.deps[interp].add(filename)
+            else:
                 print("{}: {}: interp not found".format(
                     fsdecode(filename), fsdecode(interp)), file=stderr)
                 self.fail = True
         
         for needed in deps.needed():
             if needed.search:
-                found = False
-                for match in deps.search_lib(needed.name, self.cache):
-                    found = True
+                found = deps.search_lib(needed.name, self.cache)
+                try:
+                    found = next(found)
+                except StopIteration:
+                    found = None
             else:
-                found = self.fs.exists(needed.name)
+                found = needed.name
+                if not self.fs.exists(found):
+                    found = None
             
-            if not found:
+            if found is None:
                 print("{}: {}: needed not found".format(
                     fsdecode(filename), fsdecode(needed.raw_name)),
                     file=stderr)
@@ -151,6 +165,19 @@ class Analyser(object):
                             self.fs.owner(so)
                 
                 self.fail = True
+            
+            else:
+                self.deps[found].add(filename)
+    
+    def write_db(self):
+        with open(self.DEP_DB, "wb") as db:
+            for (indep, deps) in self.deps.items():
+                db.writelines((indep, b":"))
+                for dep in deps:
+                    db.writelines((b"\n  ", dep))
+                db.write(b"\n")
+    
+    DEP_DB = "/var/lib/roopwn-deps"
 
 class PackagesFs(Filesystem):
     def __init__(self):
