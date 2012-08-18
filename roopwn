@@ -21,7 +21,7 @@ from functools import partial
 from os.path import exists
 from lib import Cleanup
 from errno import (EINVAL, ENOENT, ENOTDIR)
-from os import strerror
+from os import (strerror, stat)
 from signal import (signal, SIGINT, SIGQUIT, SIG_IGN)
 from collections import defaultdict
 
@@ -90,13 +90,41 @@ def main():
             name = decompress(pkg, ".tar", work)
             anal.fs.add(pkg, cleanup(tarfile.open(name)))
         
+        touched = set()
+        for pkg in pkgs:
+            (pkg, _) = pkg_parse(pkg)
+            touched.add(fsencode(pkg))
+        with Popen("pacman --deptest --".split() + list(touched),
+        stdout=subprocess.PIPE, bufsize=-1) as pacman:
+            for new in pacman.stdout:
+                (new,) = new.splitlines()
+                touched.remove(new)
+        
+        recheck = set()
+        pacman = "pacman --query --list --quiet --".split() + list(touched)
+        with command_pipe(pacman, stdout=subprocess.PIPE) as pacman:
+            for file in pacman.stdout:
+                (file,) = file.splitlines()
+                recheck.update(anal.deps.pop(strip_root(file), ()))
+        
         for (filename, entry) in anal.fs.paths.items():
+            recheck.discard(filename)
+            
             member = entry.member
             if not member.isfile():
                 continue
             
             file = entry.tar.extractfile(member)
             anal.analyse(file, filename, member.mode)
+        
+        while recheck:
+            dep = recheck.pop()
+            try:
+                file = anal.fs.open(dep)
+            except EnvironmentError:
+                continue
+            with file:
+                anal.analyse(file, dep, anal.fs.stat(dep).st_mode)
     
     if anal.fail:
         raise SystemExit(1)
@@ -272,6 +300,14 @@ class PackagesFs(Filesystem):
             (pkg, ver) = pkg_parse(pkg)
             print(":: {} would be installed by {} {}".format(
                 fsdecode(path), fsdecode(pkg), fsdecode(ver)), file=stderr)
+    
+    def stat(self, path):
+        try:
+            member = self.paths[path].member
+        except LookupError:
+            return stat(b"/" + path)
+        else:
+            return Record(st_mode=member.mode)
 
 def pkg_parse(name):
     PKG = ".pkg."
