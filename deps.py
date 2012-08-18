@@ -135,15 +135,15 @@ class LibCache(object):
         
         try:
             file = self.fs.open(filename)
-        except EnvironmentError:
-            res = None
-        else:
             with closing(file):
                 elf = Elf(file)
-                res = Record((attr, getattr(elf, attr)) for attr in (
-                    "elf_class", "data", "osabi", "abiversion", "machine",
-                    "version", "flags",
-                ))
+        except (EnvironmentError, ValueError):
+            res = None
+        else:
+            res = Record((attr, getattr(elf, attr)) for attr in (
+                "elf_class", "data", "osabi", "abiversion", "machine",
+                "version", "flags",
+            ))
         
         self.cache[filename] = res
         return res
