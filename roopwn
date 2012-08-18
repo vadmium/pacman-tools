@@ -441,8 +441,9 @@ class IgnoreSigs(object):
 
 class command_pipe(Popen):
     def __init__(self,
-    proc_args, *popen_args, bufsize=-1, trace=False, **kw):
+    proc_args, *popen_args, bufsize=-1, trace=False, check=True, **kw):
         self.trace = trace
+        self.check = check
         if self.trace:
             self.arg0 = proc_args[0]
             command_trace(proc_args)
@@ -451,7 +452,7 @@ class command_pipe(Popen):
     
     def wait(self, *args, **kw):
         returncode = Popen.wait(self, *args, **kw)
-        if returncode:
+        if self.check and returncode:
             if self.trace:
                 raise SystemExit("Command {self.arg0!r} failed "
                     "with exit status {returncode}".format_map(locals()))
