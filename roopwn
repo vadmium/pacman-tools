@@ -198,17 +198,16 @@ class PackagesFs(Filesystem):
     
     def add(self, pkg, tar):
         for member in tar:
-            filename = strip_root(member.name)
-            if filename.startswith("."):
+            filename = strip_root(fsencode(member.name))
+            if filename.startswith(b"."):
                 continue
             
-            key = fsencode(filename)
-            if key in self.paths:
+            if filename in self.paths:
                 if member.isdir():
                     continue
-                raise ValueError("Duplicate packaged file: {filename}".
+                raise ValueError("Duplicate packaged file: {member.name}".
                     format_map(locals()))
-            self.paths[key] = Record(pkg=pkg, tar=tar, member=member)
+            self.paths[filename] = Record(pkg=pkg, tar=tar, member=member)
     
     # TODO: expand links in parent directories before looking up tar file members
     
@@ -392,7 +391,7 @@ def ErrNoError(errno, *args, **kw):
 def strip_root(path):
     start = 0
     while True:
-        for prefix in ("/", "./", "../"):
+        for prefix in (b"/", b"./", b"../"):
             if path.startswith(prefix, start):
                 start += len(prefix)
                 break
