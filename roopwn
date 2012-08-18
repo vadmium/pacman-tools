@@ -112,6 +112,7 @@ class Analyser(object):
         # exist or be dependent, because they are not delisted when their
         # package is touched.
         self.deps = defaultdict(set)
+        self.read_db()
         
         self.fs = PackagesFs()
         self.fail = False
@@ -168,6 +169,18 @@ class Analyser(object):
             
             else:
                 self.deps[found].add(filename)
+    
+    def read_db(self):
+        with open(self.DEP_DB, "rb") as db:
+            for line in db:
+                line = strip(line, end=b"\n")
+                try:
+                    dep = strip(line, b"  ")
+                except ValueError:
+                    indep = strip(line, end=b":")
+                    deps = self.deps[indep]
+                else:
+                    deps.add(dep)
     
     def write_db(self):
         with open(self.DEP_DB, "wb") as db:
