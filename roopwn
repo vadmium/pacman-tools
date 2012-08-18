@@ -198,16 +198,7 @@ class PackagesFs(Filesystem):
     
     def add(self, pkg, tar):
         for member in tar:
-            start = 0
-            while True:
-                for prefix in ("/", "./", "../"):
-                    if member.name.startswith(prefix, start):
-                        start += len(prefix)
-                        break
-                else:
-                    break
-            filename = member.name[start:]
-            
+            filename = strip_root(member.name)
             if filename.startswith("."):
                 continue
             
@@ -387,6 +378,16 @@ def command_trace(args):
 
 def ErrNoError(errno, *args, **kw):
     return EnvironmentError(errno, strerror(errno), *args, **kw)
+
+def strip_root(path):
+    start = 0
+    while True:
+        for prefix in ("/", "./", "../"):
+            if path.startswith(prefix, start):
+                start += len(prefix)
+                break
+        else:
+            return path[start:]
 
 if __name__ == "__main__":
     main()
