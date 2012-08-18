@@ -115,7 +115,22 @@ def main():
                 continue
             
             file = entry.tar.extractfile(member)
-            anal.analyse(file, filename, member.mode)
+            
+            def guess_needed(deps, needed):
+                (dir, so) = path.split(needed.name)
+                try:
+                    so = so.rsplit(b".so.", 1)[-2]
+                except IndexError:
+                    return
+                so = path.join(dir, so + b".so")
+                if needed.search:
+                    for match in deps.search_lib(so, anal.cache):
+                        anal.fs.owner(match)
+                else:
+                    if anal.fs.exists(so):
+                        anal.fs.owner(so)
+            
+            anal.analyse(file, filename, member.mode, on_needed=guess_needed)
         
         while recheck:
             dep = recheck.pop()
@@ -124,7 +139,8 @@ def main():
             except EnvironmentError:
                 continue
             with file:
-                anal.analyse(file, dep, anal.fs.stat(dep).st_mode)
+                if not anal.analyse(file, dep, anal.fs.stat(dep).st_mode):
+                    anal.fs.owner(dep)
     
     if anal.fail:
         raise SystemExit(1)
@@ -146,7 +162,9 @@ class Analyser(object):
         self.fail = False
         self.cache = LibCache(self.fs)
     
-    def analyse(self, file, filename, mode):
+    def analyse(self, file, filename, mode, on_needed=None):
+        fail = False
+        
         origin = partial(self.fs.get_origin, filename)
         privileged = is_privileged(mode)
         try:
@@ -160,7 +178,7 @@ class Analyser(object):
             else:
                 print("{}: {}: interp not found".format(
                     fsdecode(filename), fsdecode(interp)), file=stderr)
-                self.fail = True
+                fail = True
         
         for needed in deps.needed():
             if needed.search:
@@ -178,25 +196,16 @@ class Analyser(object):
                 print("{}: {}: needed not found".format(
                     fsdecode(filename), fsdecode(needed.raw_name)),
                     file=stderr)
-                
-                (dir, so) = path.split(needed.name)
-                try:
-                    so = so.rsplit(b".so.", 1)[-2]
-                except IndexError:
-                    pass
-                else:
-                    so = path.join(dir, so + b".so")
-                    if needed.search:
-                        for match in deps.search_lib(so, self.cache):
-                            self.fs.owner(match)
-                    else:
-                        if self.fs.exists(so):
-                            self.fs.owner(so)
-                
-                self.fail = True
+                if on_needed:
+                    on_needed(deps, needed)
+                fail = True
             
             else:
                 self.deps[found].add(filename)
+        
+        if fail:
+            self.fail = True
+        return not fail
     
     def read_db(self):
         with open(self.DEP_DB, "rb") as db:
