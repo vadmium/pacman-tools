@@ -106,6 +106,9 @@ def main():
     anal = Analyser()
     with TemporaryDirectory(prefix="roopwn") as work, Cleanup() as cleanup:
         print("analysing file dependencies...", file=stderr)
+        
+        if verbose:
+            print("extracting packages...", file=stderr)
         for pkg in pkgs:
             name = decompress(pkg, ".tar", work)
             if not anal.fs.add(pkg, cleanup(tarfile.open(name))):
@@ -122,6 +125,9 @@ def main():
             for file in pacman.stdout:
                 (file,) = file.splitlines()
                 recheck.update(anal.deps.pop(strip_root(file), ()))
+        
+        if verbose:
+            print("searching for new dependencies...", file=stderr)
         
         if filedeps:
             def on_needed(deps, needed):
@@ -150,6 +156,8 @@ def main():
             file = entry.tar.extractfile(member)
             anal.analyse(file, filename, member.mode, on_needed=on_needed)
         
+        if verbose:
+            print("updating old dependencies...", file=stderr)
         while recheck:
             dep = recheck.pop()
             try:
