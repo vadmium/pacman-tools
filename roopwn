@@ -44,6 +44,7 @@ def main():
     refresh = []
     xaction_args = list()
     dryrun = False
+    filedeps = True
     
     args = iter(argv[1:])
     for arg in args:
@@ -68,6 +69,8 @@ def main():
                 xaction_args.append(opt)
             elif opt == "-n":
                 dryrun = True
+            elif opt == "--nofiledeps":
+                filedeps = False
             else:
                 through.append(arg)
                 through.extend(args)
@@ -120,16 +123,8 @@ def main():
                     (file,) = file.splitlines()
                     recheck.update(anal.deps.pop(strip_root(file), ()))
         
-        for (filename, entry) in anal.fs.paths.items():
-            recheck.discard(filename)
-            
-            member = entry.member
-            if not member.isfile():
-                continue
-            
-            file = entry.tar.extractfile(member)
-            
-            def guess_needed(deps, needed):
+        if filedeps:
+            def on_needed(deps, needed):
                 (dir, so) = path.split(needed.name)
                 try:
                     so = so.rsplit(b".so.", 1)[-2]
@@ -142,8 +137,18 @@ def main():
                 else:
                     if anal.fs.exists(so):
                         anal.fs.owner(so)
+        else:
+            on_needed = None
+        
+        for (filename, entry) in anal.fs.paths.items():
+            recheck.discard(filename)
             
-            anal.analyse(file, filename, member.mode, on_needed=guess_needed)
+            member = entry.member
+            if not member.isfile():
+                continue
+            
+            file = entry.tar.extractfile(member)
+            anal.analyse(file, filename, member.mode, on_needed=on_needed)
         
         while recheck:
             dep = recheck.pop()
@@ -152,10 +157,11 @@ def main():
             except EnvironmentError:
                 continue
             with file:
-                if not anal.analyse(file, dep, anal.fs.stat(dep).st_mode):
-                    anal.fs.owner(dep)
+                fail = not anal.analyse(file, dep, anal.fs.stat(dep).st_mode)
+            if fail and filedeps:
+                anal.fs.owner(dep)
     
-    if anal.fail:
+    if filedeps and anal.fail:
         raise SystemExit(1)
     
     if not dryrun:
