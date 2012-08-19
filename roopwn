@@ -82,6 +82,9 @@ def main():
             for pkg in pacman.stdout:
                 (pkg,) = pkg.splitlines()
                 pkgs.append(path.join(CACHEDIR, basename(pkg)))
+        
+        if not pkgs:
+            return
     
     anal = Analyser()
     with TemporaryDirectory(prefix="roopwn") as work, Cleanup() as cleanup:
@@ -101,11 +104,13 @@ def main():
                 touched.remove(new)
         
         recheck = set()
-        pacman = "pacman --query --list --quiet --".split() + list(touched)
-        with command_pipe(pacman, stdout=subprocess.PIPE) as pacman:
-            for file in pacman.stdout:
-                (file,) = file.splitlines()
-                recheck.update(anal.deps.pop(strip_root(file), ()))
+        if touched:
+            pacman = "pacman --query --list --quiet --".split()
+            pacman.extend(touched)
+            with command_pipe(pacman, stdout=subprocess.PIPE) as pacman:
+                for file in pacman.stdout:
+                    (file,) = file.splitlines()
+                    recheck.update(anal.deps.pop(strip_root(file), ()))
         
         for (filename, entry) in anal.fs.paths.items():
             recheck.discard(filename)
