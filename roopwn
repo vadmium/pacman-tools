@@ -39,9 +39,10 @@ CACHEDIR = b"/var/cache/pacman/pkg"
 
 def main():
     through = list()
-    refresh = []
     sync = []
     upgrade = []
+    refresh = []
+    xaction_args = list()
     dryrun = False
     
     args = iter(argv[1:])
@@ -55,10 +56,16 @@ def main():
             
             if opt in ("-S", "--sync"):
                 sync.append(opt)
-            elif opt in ("-y", "--refresh"):
-                refresh.append(opt)
             elif opt in ("-U", "--upgrade"):
                 upgrade.append(opt)
+            elif opt in ("-y", "--refresh"):
+                refresh.append(opt)
+            elif opt in (
+                "--needed", "--asdeps", "--asexplicit", "--noscriptlet",
+                "-d", "--nodeps", "--noprogressbar", "-f", "--force",
+                "--recursive", "--noconfirm",
+            ):
+                xaction_args.append(opt)
             elif opt == "-n":
                 dryrun = True
             else:
@@ -74,11 +81,12 @@ def main():
     if upgrade:
         pkgs = through
     else:
-        command(["pacman"] + sync + refresh + ["--downloadonly"] + through)
+        pacman = ["pacman"] + sync + refresh + xaction_args
+        command(pacman + ["--downloadonly"] + through)
         
         pkgs = list()
-        with command_pipe(["pacman"] + sync + ["--print"] + through,
-        stdout=subprocess.PIPE) as pacman:
+        pacman = ["pacman"] + sync + xaction_args + ["--print"] + through
+        with command_pipe(pacman, stdout=subprocess.PIPE) as pacman:
             for pkg in pacman.stdout:
                 (pkg,) = pkg.splitlines()
                 pkgs.append(path.join(CACHEDIR, basename(pkg)))
@@ -151,7 +159,8 @@ def main():
         raise SystemExit(1)
     
     if not dryrun:
-        command("pacman --upgrade --".split() + pkgs)
+        pacman = "pacman --upgrade".split() + xaction_args
+        command(pacman + ["--"] + pkgs)
         anal.write_db()
 
 class Analyser(object):
