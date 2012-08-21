@@ -73,8 +73,9 @@ def main():
                 filedeps = False
             else:
                 through.append(arg)
-                through.extend(args)
-                break
+                if opt.startswith("-"):
+                    through.extend(args)
+                    break
             
             if strung:
                 arg = "-" + arg[1 + 1:]
