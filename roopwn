@@ -191,7 +191,7 @@ class Analyser(object):
         privileged = is_privileged(mode)
         try:
             deps = Deps(file, origin, privileged)
-        except ValueError:
+        except (ValueError, LookupError):
             return
         
         for interp in deps.interps():
