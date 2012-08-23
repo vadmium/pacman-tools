@@ -442,14 +442,31 @@ class IgnoreSigs(object):
 
 class command_pipe(Popen):
     def __init__(self,
-    proc_args, *popen_args, bufsize=-1, trace=False, check=True, **kw):
+    proc_args, *popen_args,
+    bufsize=-1, stderr=None, trace=False, check=True, **kw):
         self.trace = trace
         self.check = check
-        if self.trace:
-            self.arg0 = proc_args[0]
-            command_trace(proc_args)
         
-        Popen.__init__(self, proc_args, *popen_args, bufsize=bufsize, **kw)
+        if stderr is self.NULL:
+            null = open(devnull, "w")
+        else:
+            null = None
+        
+        try:
+            if stderr is self.NULL:
+                stderr = null
+            
+            if self.trace:
+                self.arg0 = proc_args[0]
+                command_trace(proc_args)
+            
+            Popen.__init__(self,
+                proc_args, *popen_args,
+                bufsize=bufsize, stderr=stderr, **kw)
+        
+        finally:
+            if null:
+                null.close()
     
     def wait(self, *args, **kw):
         returncode = Popen.wait(self, *args, **kw)
@@ -460,14 +477,14 @@ class command_pipe(Popen):
             else:
                 raise SystemExit(returncode)
         return returncode
+    
+    NULL = object()
 
 def command_trace(args):
     print("+", " ".join(fsdecode(arg) for arg in args), file=stderr)
 
 def ErrNoError(errno, *args, **kw):
     return EnvironmentError(errno, strerror(errno), *args, **kw)
-
-null = open(devnull, "w")
 
 def strip_root(path):
     start = 0
