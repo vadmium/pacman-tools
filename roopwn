@@ -107,24 +107,17 @@ def main():
             if not anal.fs.add(pkg, cleanup(tarfile.open(name))):
                 anal.fail = True
         
-        touched = set()
+        pacman = "pacman --query --list --quiet --".split()
         for pkg in pkgs:
             (pkg, _) = pkg_parse(pkg)
-            touched.add(fsencode(pkg))
-        with Popen("pacman --deptest --".split() + list(touched),
-        stdout=subprocess.PIPE, bufsize=-1) as pacman:
-            for new in pacman.stdout:
-                (new,) = new.splitlines()
-                touched.remove(new)
+            pacman.append(pkg)
         
         recheck = set()
-        if touched:
-            pacman = "pacman --query --list --quiet --".split()
-            pacman.extend(touched)
-            with command_pipe(pacman, stdout=subprocess.PIPE) as pacman:
-                for file in pacman.stdout:
-                    (file,) = file.splitlines()
-                    recheck.update(anal.deps.pop(strip_root(file), ()))
+        with command_pipe(pacman, stdout=subprocess.PIPE,
+        stderr=command_pipe.NULL, check=False) as pacman:
+            for file in pacman.stdout:
+                (file,) = file.splitlines()
+                recheck.update(anal.deps.pop(strip_root(file), ()))
         
         if filedeps:
             def on_needed(deps, needed):
