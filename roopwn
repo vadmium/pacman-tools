@@ -451,7 +451,7 @@ class command_pipe(Popen):
         return returncode
 
 def command_trace(args):
-    print("+", " ".join(args), file=stderr)
+    print("+", " ".join(fsdecode(arg) for arg in args), file=stderr)
 
 def ErrNoError(errno, *args, **kw):
     return EnvironmentError(errno, strerror(errno), *args, **kw)
