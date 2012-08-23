@@ -103,7 +103,8 @@ def main():
         print("analysing file dependencies...", file=stderr)
         for pkg in pkgs:
             name = decompress(pkg, ".tar", work)
-            anal.fs.add(pkg, cleanup(tarfile.open(name)))
+            if not anal.fs.add(pkg, cleanup(tarfile.open(name))):
+                anal.fail = True
         
         touched = set()
         for pkg in pkgs:
@@ -257,6 +258,7 @@ class PackagesFs(Filesystem):
         self.paths = dict()
     
     def add(self, pkg, tar):
+        success = True
         for member in tar:
             filename = strip_root(fsencode(member.name))
             if filename.startswith(b"."):
@@ -265,9 +267,16 @@ class PackagesFs(Filesystem):
             if filename in self.paths:
                 if member.isdir():
                     continue
-                raise ValueError("Duplicate packaged file: {member.name}".
-                    format_map(locals()))
+                
+                (old, _) = pkg_parse(self.paths[filename].pkg)
+                (new, _) = pkg_parse(pkg)
+                print(fsdecode(new), "duplicates", member.name, "from",
+                    fsdecode(old), file=stderr)
+                success = False
+            
             self.paths[filename] = Record(pkg=pkg, tar=tar, member=member)
+        
+        return success
     
     # TODO: expand links in parent directories before looking up tar file members
     
