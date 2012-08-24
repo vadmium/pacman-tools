@@ -46,6 +46,7 @@ def main():
     xaction_args = list()
     dryrun = False
     filedeps = True
+    verbose = False
     
     args = iter(argv[1:])
     for arg in args:
@@ -72,6 +73,8 @@ def main():
                 dryrun = True
             elif opt == "--nofiledeps":
                 filedeps = False
+            elif opt in ("-v", "--verbose"):
+                verbose = True
             else:
                 through.append(arg)
                 if opt.startswith("-"):
@@ -87,11 +90,12 @@ def main():
         pkgs = through
     else:
         pacman = ["pacman"] + sync + refresh + xaction_args
-        command(pacman + ["--downloadonly"] + through)
+        command(pacman + ["--downloadonly"] + through, trace=verbose)
         
         pkgs = list()
         pacman = ["pacman"] + sync + xaction_args + ["--print"] + through
-        with command_pipe(pacman, stdout=subprocess.PIPE) as pacman:
+        with command_pipe(pacman, stdout=subprocess.PIPE,
+        trace=verbose) as pacman:
             for pkg in pacman.stdout:
                 (pkg,) = pkg.splitlines()
                 pkgs.append(path.join(CACHEDIR, basename(pkg)))
@@ -114,7 +118,7 @@ def main():
         
         recheck = set()
         with command_pipe(pacman, stdout=subprocess.PIPE,
-        stderr=command_pipe.NULL, check=False) as pacman:
+        stderr=command_pipe.NULL, check=False, trace=verbose) as pacman:
             for file in pacman.stdout:
                 (file,) = file.splitlines()
                 recheck.update(anal.deps.pop(strip_root(file), ()))
@@ -164,7 +168,7 @@ def main():
         pacman = "pacman --upgrade".split()
         if not upgrade:
             pacman.append("--noconfirm")
-        command(pacman + xaction_args + ["--"] + pkgs)
+        command(pacman + xaction_args + ["--"] + pkgs, trace=verbose)
         anal.write_db()
 
 class Analyser(object):
@@ -407,9 +411,8 @@ def command(proc_args, *popen_args, trace=False, **kw):
                 **kw)
     except CalledProcessError as e:
         if trace:
-            raise SystemExit(e)
-        else:
-            raise SystemExit(e.returncode)
+            print(e, file=stderr)
+        raise SystemExit(e.returncode)
 
 class IgnoreSigs(object):
     # Sounds like a recipe for a race condition, but there doesn't seem to be
@@ -465,10 +468,9 @@ class command_pipe(Popen):
         returncode = Popen.wait(self, *args, **kw)
         if self.check and returncode:
             if self.trace:
-                raise SystemExit("Command {self.arg0!r} failed "
-                    "with exit status {returncode}".format_map(locals()))
-            else:
-                raise SystemExit(returncode)
+                print("Command", repr(self.arg0),
+                    "failed with exit status", returncode, file=stderr)
+            raise SystemExit(returncode)
         return returncode
     
     NULL = object()
