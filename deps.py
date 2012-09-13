@@ -1,13 +1,13 @@
 # Reference: https://www.sco.com/developers/gabi/latest/contents.html
 
 from elf import Elf
-from lib import Record
+from shorthand import Record
 from os import environb
 from os.path import (isabs, dirname)
 from os import (readlink, listdir)
 from stat import (S_ISUID, S_ISGID)
 from contextlib import closing
-from lib import strip
+from shorthand import strip
 from os import path
 import fnmatch
 from collections import defaultdict

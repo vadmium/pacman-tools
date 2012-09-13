@@ -11,7 +11,7 @@ Reference: https://www.sco.com/developers/gabi/latest/contents.html
 
 from collections import namedtuple
 from struct import Struct
-from lib import SEEK_CUR
+from misc import SEEK_CUR
 from contextlib import contextmanager
 from collections import defaultdict
 
