@@ -47,6 +47,7 @@ def main():
     dryrun = False
     filedeps = True
     verbose = False
+    help = False
     
     args = iter(argv[1:])
     for arg in args:
@@ -69,12 +70,14 @@ def main():
                 "--recursive", "--noconfirm",
             ):
                 xaction_args.append(opt)
-            elif opt == "-n":
+            elif opt == "--dryrun":
                 dryrun = True
             elif opt == "--nofiledeps":
                 filedeps = False
             elif opt in ("-v", "--verbose"):
                 verbose = True
+            elif opt in ("-h", "--help"):
+                help = True
             else:
                 through.append(arg)
                 if opt.startswith("-"):
@@ -85,6 +88,25 @@ def main():
                 arg = "-" + arg[1 + 1:]
             else:
                 break
+    
+    if help:
+        print("""\
+Parameters: <operation> [options . . .] [Pacman arguments . . .]
+Operations: -S --sync -U --upgrade
+Options handled natively:
+    --nofiledeps
+    --dryrun
+    -v --verbose
+    -h --help
+Options passed to Pacman:
+    -y --refresh
+    --needed --recursive
+    --asdeps --asexplicit
+    --noscriptlet -d --nodeps -f --force
+    --noprogressbar --noconfirm
+""",
+        file=stderr)
+        return
     
     if upgrade:
         pkgs = through
