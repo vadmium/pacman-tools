@@ -18,7 +18,7 @@ from contextlib import contextmanager
 from collections import defaultdict
 import builtins
 from operator import itemgetter
-from collections import Sequence
+from collections import (Sequence, Mapping)
 
 class Elf:
     EI_NIDENT = 16
@@ -382,7 +382,16 @@ class Dynamic(object):
         symtab = segments.map(symtab)
         return SymbolTable(self.elf, symtab, syment, self)
     
+    def symbol_hash(self, segments, symtab):
+        hash = self.entries[self.HASH]
+        if not hash:
+            return None
+        (hash,) = hash
+        hash = segments.map(hash)
+        return Hash(self.elf, hash, symtab)
+    
     NEEDED = 1
+    HASH = 4
     STRTAB = 5
     SYMTAB = 6
     RELA = 7
@@ -438,6 +447,29 @@ class SymbolTable(object):
     
     HIDDEN = 2
     INTERNAL = 1
+
+# Does not really implement a proper mapping because __iter__() yields values
+# rather than keys, but some of the mixin methods might be handy
+class Hash(Mapping):
+    def __init__(self, elf, offset, symtab):
+        self.elf = elf
+        self.symtab = symtab
+        
+        self.elf.file.seek(offset)
+        (self.nbucket, self.nchain) = self.elf.read("LL")
+        #~ self.offset = self.elf.file.tell()
+    
+    def __len__(self):
+        return self.nchain
+    
+    def __iter__(self):
+        for _ in range(self.nbucket + self.nchain):
+            sym = self.elf.read("L")
+            if sym:
+                yield self.symtab[sym]
+    
+    def __getitem__(self, name):
+        raise NotImplementedError()
 
 @contextmanager
 def open(filename):
