@@ -15,6 +15,7 @@ from misc import SEEK_CUR
 from contextlib import contextmanager
 from collections import defaultdict
 import builtins
+from collections import Sequence
 
 class Elf:
     EI_NIDENT = 16
@@ -240,7 +241,7 @@ class Elf:
     EM_SPARCV9 = 43
     STT_SPARC_REGISTER = STT_LOPROC
 
-class Segments(object):
+class Segments(Sequence):
     def __init__(self, elf, phoff, phentsize, phnum):
         self.elf = elf
         
