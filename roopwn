@@ -12,6 +12,7 @@
     * handle the dependencies of the package that create the /usr/lib/ or /lib/ symlink, or any symlink
     * need to notify about conflicts before downloading the (wrong) package
     * temporary packages: remove them instead of upgrading them
+    * -C --downgrade [aura] use package cache as source
     * Can CLI options be ripped from "pycman" stuff in "pyalpm" package?
     * Show URL for package info: AUR search or package page; etc
     * Specify flags applying to certain packages or sets of packages; eg check file deps by default, except for a specific few
@@ -20,6 +21,7 @@
     * run namcap etc automatically before installing packages; but not for "trusted" packages. This would be a completely different kind of trust to the signed packages trust; you should be able to trust the signature of a package to avoid malicious packages yet not trust it for namcap testing.
     * if a file dep is not met, could check it in package file db; if found in opt deps then that would be okay (but I don't use the package file db). Also could use that DB to search for packages providing a missing dep
     * Option to force unlock sync DB
+    * Some sort of friendly search and install mode
 
 Metapac:
     * generate an optional dependency package based on optdepends info (group identical explanations, except for missing explanations)
@@ -31,6 +33,208 @@ Package builder:
     * search for info from registered sources
     * automatic resolving dependencies from registered sources
     * specify a tag to add to the version when building (e.g. python 3.3 version vs python 3.2 version). Allows separate packages to be built and switched without conflicting the file or version name.
+    * -u --sysupgrade
+    * -r --rmdeps
+    * -x --noinstall [aurbuild] -w --buildonly [pkgbuilder] (a bit like Pacman -w --downloadonly)
+    * -o --builder-opts [aurbuild]; --mopt [aurget]: Passed to "makepkg"
+    * -A --aursync [aura]: Like Pacman's -S --sync but for the AUR
+    * Allow inspection and confirmation of sources before building, but minimise the repeditiveness of this when building many files
+    * Allow a package to be deconfirmed
+    * -w --downloadonly [aura; should be different to the binary download options]: Download source tarball into cache
+    * AUR packages prefixed with aur/ repository name; incl. in search results
+    * Model dependency building after Make; e.g. -k for keep building if possible after first failure
+    * If a version number is specified; drop sources that do not provide that version
+    * -n --noauto [aurora]: Build but do not install
+    * -d --directory: Download directory [/tmp/aurora]
+    * Clean list of packages build and where they came from, so you can go vote in AUR for them
+    * Stick binary packages in Pacman cache? is there any point in this?
+    * Should respect $PACMAN from makepkg.conf
+    * Provide opportunity to edit source package even before its dependencies have been determined. But any modifications would be lost. Default should only be to view the source.
+    * Simple mode to get source package and run makepkg without attempting to resolve dependencies itself, like Aurora
+    * -U PKGBUILD or *.src.tar.gz equivalent to running "makepkg --install" [Packer, Meric]
+
+makepkg and ABS
+    * Platform: Bash, Pacman
+    * Source files: /var/abs/
+    * Packages pulled from rsync://rsync.archlinux.org/abs/$arch/$REPO/$pkgbase/
+    * Allows individual repo or package to be specified to retrieve; probably ignored on first tarball retrieval though
+    * Builds all packages by repo; user specified build directory
+    * BUILDDIR=/tmp/makepkg PKGDEST=/home/packages SRCDEST=/home/sources SRCPKGDEST=/home/srcpackages
+    * $BUILDDIR, $PKGDEST, $SRCDEST may be relative to current directory
+    * $PKGDEST and $SRCDEST must already exist and be writable with original permissions; even if no downloads need to be stored
+    * $BUILDDIR/src/; $BUILDDIR/pkg/ (originally). Now $BUILDDIR/$pkgname/{src,pkg}/
+    * symbolically links ./*.pkg.* to $PKGDEST/*.pkg.*
+
+Arson
+    * Platform: Ruby
+    * Presumed dead
+
+Aura
+    * Platform: > 64 MiB (Haskell?)
+
+aurbuild
+    * Platform: Python 2 modules, Pacman, makepkg
+    * Inspection: Menu before building each package
+    * Permission: Must be invoked as root
+    * Builds: /var/tmp/aurbuild/build/<pkgname>/<pkgname>/{PKGBUILD, src, pkg, $pkgname-$pkgver-$pkgrel-$arch$PKGEXT}; completely removed by default afterwards
+    * Local source repository: /var/tmp/aurbuild/pkgbuilds/<pkgname>/PKGBUILD (sources optionally saved here)
+    * UI: Custom Gnu CLI
+    * Broken by AUR 2?
+
+aurget
+    * Platform: Bash, Pacman, makepkg, Curl
+    * Directories: ./$pkgbase/PKGBUILD, etc
+    * Inspection: yes/no prompt
+    * Runs Pacman without confirmations
+    * Does not pay attention to makedeps; at least if a version number is specified
+
+Aurifere (-git)
+    * Platform: Python (3) modules, Git
+    * Builds: ~/share/aurifere/<pkgname>/
+    * Inspection: Git diffs
+
+Aurora (-hg)
+    * Platform: Single Python 3 script, Pacman, makepkg
+    * Builds: /tmp/aurora/<pkgname>/
+    * Permission: only via "makepkg"; option to drop from "root" to UID 99 (nobody)
+    * Does a substring search rather than taking a specific package name
+    * Pauses but assumes separate terminal used to verify PKGBUILD file by default; --edit option as alternative
+    * Uses "makepkg" to resolve dependencies, and only after editing source package! Nice for fixing up someone else's dependency list, but no automatic AUR dependencies.
+    * Not Pacman UI compatible itself; options misleading (e.g. use --search to install something)
+
+aursh (AUR shell)
+    * Platform: Python 2
+    * Presumed dead
+
+autoaur
+    * Platform: Bash
+    * Presumed dead
+    * Has plugins for AUR, ABS, Pacman wrapping
+
+Bauerbill
+    * Platform: Perl (?)
+    * Lots of nice ideas
+    * No public copies found
+    * http://wayback.archive.org/http://xyne.archlinux.ca/manpages/bauerbill
+
+Clyde
+    * Platform: Lua
+    * Presumed dead
+
+Cower
+    * Platform: C, Curl, YAJL
+    * Sources: ./<pkgname>/
+    * Does not build packages
+
+makeaur
+    * Platform: Bash
+    * Presumed dead
+
+Meat (-git)
+    * Platform: Bash, Cower, sudo, Pacman, makepkg
+    * Builds: /tmp/tmp.*/$pkgname/PKGBUILD, etc
+    * Inspection: Ask to edit PKGBUILD after confirming installation and after determining dependencies
+    * Not Pacman compatible
+    * CLI arguments cannot be reordered (Gnu style)
+
+Meric
+    * Fork of Packer
+    * What was yellow on white is now black on red: marginally better
+
+Owl (-git):
+    * Platform: Posix shell (uses Dash), sudo, Cower, Pacman
+    * Looks like it completely wraps Pacman, adds lots of aliases, but with different CLI
+    * Extremely brief CLI usage help
+    * Install seems to rely on /home/src/aur/ (= XDG_AUR_HOME?) for AUR packages
+    * Prints "running sudo" in white on white!
+
+pacaur
+    * Platform: Bash, expac, makepkg, Cower, sudo
+    * Builds: /tmp/pacaurtmp-$USER/$pkgname
+    * Some custom parser to handle dependencies based on $CARCH; maybe just using Bash after all :(
+    * Prompt to edit PKGBUILD with VIM
+
+pacmoon
+    * ZSH
+    * Usage similar to Portage
+    * Handles dependencies, Arch repositories, recompiling precompiled Arch packages
+    * Tracks packages that have been compiled; recognises when they are overwritten by a precompiled package
+    * Possibly dead [untried]
+
+Packer
+    * Platform: Bash, $PACMAN, Curl, jshon, makepkg
+    * Builds: /tmp/packerbuild-$UID/$pkgname/{$pkgname.tar.gz, $pkgname/PKGBUILD}
+    * Inspection: edit each file (including install script) with $EDITOR
+    * Permission: devious (automatically uses "sudo"?)
+    * Pacman wrapper
+    * No releases; expect whatever is at the head of repository
+    * Horrible yellow on white colour output. Uses hard-coded strings like "-Ss".
+    * Default operation is to do a search and install selected results from the search
+    * Response to search-and-install must be a line, as for Pacman installation confirmation, but other confirmations are single character only
+    * Does not show if AUR packages in search results are installed
+    * pacman-mirrorlist [installed: newline]
+    * Result of installing a package that doesn't exist looks more like a crash than an error message
+
+paktahn
+    * Platform: Common Lisp
+
+pbfetch
+
+pbget
+    * Platform: Python 3 script (previously Bash), rsync, python3-aur, pyalpm
+    * Does not build packages
+    * Has various Arch repository architecture names hard-coded
+    * Seems to scrape Git web pages with regular expressions!
+
+pkgbuilder
+    * Platform: Python 3 modules, pyalpm, Pacman, makepkg, sudo
+    * Builds: current directory, or /tmp/pkgbuilder-$UID/$pkgname/ if -S --sync mode ("pb" wrapper version only seems to do sync mode). Temp directory is kept after successful finish, with PKGBUILD, downloaded sources and build package file only (no src or pkg directory). Like makepkg --clean?
+    * Source inspection: no chance!
+    * <http://kwpolska.tk/blog/2012/09/19/pkgbuilder-ready-for-prime-time>
+    
+    Changes:
+        * "Validating installation status... / NOT installed" should exit with failure status
+        * Should allow source files to be inspected before executing them
+        * Allow them to be edited as well, as a quick hack to fix errors, amend auto-detected dependencies, etc
+        * Synchronise "repository" prefix: AUR's "aurifere-git" entry printed as "system/aurifere-git" but as printed it responds
+        * Use PACMAN from makepkg.conf
+        * Cancel "makepkg" dependency installation: pkgbuilder/build.py:123, in auto_build: TypeError: 'NoneType' object is not iterable
+        * Seems to manually check for repository (Pacman installable) depencencies itself, but then use "makepkg" to actually install them. Perhaps install them ourselves?
+
+pkgman
+    Platform: Bash
+
+powaur
+    * Platform: C, Autocrap?, Curl, YAJL (JSON library), Pacman
+    * Broken by AUR interface?
+    * /tmp/powaur-$USER/
+
+python3-aur
+    * Library
+
+Slurpy
+    * Platform: Python 2
+    * Presumed dead
+
+Spinach
+
+srcman
+    * Platform: Bash
+    * Languishing: Not sure where the functionality is
+
+tusdah
+    * Python
+    * No dependency handling; Arch repository handling under development
+    * Simple CLI: package name as argument
+    * Maintains a repository built from the AUR
+    * Not sure if being developed [untried]
+
+Yaourt
+
+Yogurt
+    * Presumed dead
+
+customizepkg
 
 Source package building:
     curl "https://aur.archlinux.org/packages/${PKGNAME:0:2}/$PKGNAME/$PKGNAME.tar.gz" |
