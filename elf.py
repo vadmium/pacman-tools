@@ -544,7 +544,9 @@ def open(filename):
     with builtins.open(filename, "rb") as f:
         yield Elf(f)
 
-def main(elf, relocs=False):
+def main(elf, relocs=False, dyn_syms=False, lookup=()):
+    from os import fsencode
+    
     with open(elf) as elf:
         for attr in (
             "elf_class, data, osabi, abiversion, machine, version, flags"
@@ -567,7 +569,7 @@ def main(elf, relocs=False):
             
             out = format_tag(tag, dynamic,
                 "NEEDED, RPATH, RUNPATH, SONAME, "
-                "REL, RELA"
+                "REL, RELA, HASH, GNU_HASH"
             )
             print("  Tag {0} ({1})".format(out, len(entries)))
             
@@ -589,6 +591,23 @@ def main(elf, relocs=False):
                     print("  Sym UNDEF")
             if not found:
                 print("  (None)")
+        
+        if dyn_syms:
+            print("\nSymbols from hash table:")
+            symtab = dynamic.symbol_table(segments)
+            hash = dynamic.symbol_hash(segments, symtab)
+            for sym in hash:
+                print("  {sym[name]}: bind {sym[bind]}, type {sym[type]}, visibility {sym[visibility]}, shndx {sym[shndx]}".format(**locals()))
+        
+        for name in lookup:
+            symtab = dynamic.symbol_table(segments)
+            hash = dynamic.symbol_hash(segments, symtab)
+            try:
+                sym = hash[fsencode(name)]
+            except LookupError:
+                print("Symbol not found:", name)
+            else:
+                print("{sym[name]}: bind {sym[bind]}, type {sym[type]}, visibility {sym[visibility]}, shndx {sym[shndx]}".format(**locals()))
 
 def format_tag(tag, obj, names):
     names = dict((getattr(obj, name), name) for name in names.split(", "))
