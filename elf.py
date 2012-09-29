@@ -345,11 +345,48 @@ class Dynamic(object):
         else:
             self.strtab = None
     
+    def rel_entries(self, segments):
+        for (table, size, entsize) in (
+            (self.RELA, self.RELASZ, self.RELAENT),
+            (self.REL, self.RELSZ, self.RELENT),
+        ):
+            entries = self.entries[table]
+            if not entries:
+                continue
+            
+            (table,) = entries
+            (size,) = self.entries[size]
+            (entsize,) = self.entries[entsize]
+            table = segments.map(table, size)
+            
+            format = "XI"
+            if entsize < self.elf.Struct(format).size:
+                raise NotImplementedError("{name} entry size too small: "
+                    "{entsize}".format(**locals()))
+            if size % entsize:
+                raise NotImplementedError(
+                    "{name} table size: {size}".format(**locals()))
+            
+            for offset in range(table, table + size, entsize):
+                self.elf.file.seek(offset)
+                (info,) = self.elf.read(format)
+                if self.elf.elf_class == self.elf.CLASS32:
+                    sym = info >> 8
+                if self.elf.elf_class == self.elf.CLASS64:
+                    sym = info >> 32
+                yield sym
+    
     NEEDED = 1
     STRTAB = 5
+    RELA = 7
+    RELASZ = 8
+    RELAENT = 9
     STRSZ = 10
     SONAME = 14
     RPATH = 15
+    REL = 17
+    RELSZ = 18
+    RELENT = 19
     RUNPATH = 29
     
     tag_attrs = dict(
