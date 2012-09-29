@@ -14,6 +14,7 @@ from struct import Struct
 from misc import SEEK_CUR
 from contextlib import contextmanager
 from collections import defaultdict
+import builtins
 
 class Elf:
     EI_NIDENT = 16
@@ -352,5 +353,5 @@ class Dynamic(object):
 
 @contextmanager
 def open(filename):
-    with open(self.filename, "rb") as f:
+    with builtins.open(filename, "rb") as f:
         yield Elf(f)
