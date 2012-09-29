@@ -25,6 +25,7 @@ from os import (strerror, stat)
 from signal import (signal, SIGINT, SIGQUIT, SIG_IGN)
 from collections import defaultdict
 from os import devnull
+from operator import itemgetter
 
 try:
     from lzma import LZMAFile
@@ -270,7 +271,7 @@ class Analyser(object):
     
     def write_db(self):
         with open(self.DEP_DB, "wb") as db:
-            for (indep, deps) in self.deps.items():
+            for (indep, deps) in sorted(self.deps.items(), key=itemgetter(0)):
                 db.writelines((indep, b":"))
                 for dep in deps:
                     db.writelines((b"\n  ", dep))
