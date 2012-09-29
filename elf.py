@@ -283,6 +283,28 @@ class Segments(Sequence):
         
         dynamic.segments_strtab(self)
         return dynamic
+    
+    def map(self, start, size=None):
+        """Map from memory address to file offset"""
+        
+        end = start
+        if size is not None:
+            end += size
+        
+        # Find a segment containing the memory region
+        found = None
+        for seg in self:
+            if start >= seg.vaddr and end <= seg.vaddr + seg.filesz:
+                # Region is contained completely within this segment
+                new = start - seg.vaddr + seg.offset
+                if found is not None and found != new:
+                    raise ValueError("Inconsistent mapping for memory "
+                        "address 0x{0:X}".format(start))
+                found = new
+        
+        if found is None:
+            raise LookupError("No segment found for 0x{0:X}".format(start))
+        return found
 
 class Segment(object):
     def __init__(self, elf, type, offset, vaddr, filesz):
@@ -313,31 +335,13 @@ class Dynamic(object):
         strtab = self.entries[self.STRTAB]
         if strtab:
             (strtab,) = strtab
-            end = strtab
             strsz = self.entries[self.STRSZ]
             if strsz:
                 (strsz,) = strsz
-                end += strsz
             else:
                 strsz = None
             
-            # Find a segment containing strtab, to convert from memory offset
-            # to file offset
-            found = None
-            for seg in segments:
-                if strtab >= seg.vaddr and end <= seg.vaddr + seg.filesz:
-                    # strtab is contained completely within this segment
-                    new = strtab - seg.vaddr + seg.offset
-                    if found is not None and found != new:
-                        raise ValueError(
-                            "Inconsistent mapping: 0x{0:X}".format(strtab))
-                    found = new
-            
-            if found is None:
-                raise LookupError(
-                    "No segment found for 0x{0:X}".format(strtab))
-            
-            self.strtab = (found, strsz)
+            self.strtab = (segments.map(strtab, strsz), strsz)
         else:
             self.strtab = None
     
