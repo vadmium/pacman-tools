@@ -444,7 +444,7 @@ def open(filename):
     with builtins.open(filename, "rb") as f:
         yield Elf(f)
 
-def main(elf):
+def main(elf, relocs=False):
     with open(elf) as elf:
         for attr in (
             "elf_class, data, osabi, abiversion, machine, version, flags"
@@ -465,13 +465,30 @@ def main(elf):
             if not entries:
                 continue
             
-            out = format_tag(tag, dynamic, "NEEDED, RPATH, RUNPATH, SONAME")
+            out = format_tag(tag, dynamic,
+                "NEEDED, RPATH, RUNPATH, SONAME, "
+                "REL, RELA"
+            )
             print("  Tag {0} ({1})".format(out, len(entries)))
             
             str = "NEEDED, RPATH, RUNPATH, SONAME".split(", ")
             if tag in (getattr(dynamic, name) for name in str):
                 for str in entries:
                     print("    {0}".format(dynamic.read_str(str)))
+            
+        if relocs:
+            print("\nRelocation entries:")
+            symtab = dynamic.symbol_table(segments)
+            found = False
+            for sym in dynamic.rel_entries(segments):
+                found = True
+                if sym:
+                    sym = symtab[sym]
+                    print("  {sym[name]} bind {sym[bind]}, type {sym[type]}, visibility {sym[visibility]}, shndx {sym[shndx]}".format(**locals()))
+                else:
+                    print("  Sym UNDEF")
+            if not found:
+                print("  (None)")
 
 def format_tag(tag, obj, names):
     names = dict((getattr(obj, name), name) for name in names.split(", "))
