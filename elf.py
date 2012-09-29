@@ -376,12 +376,20 @@ class Dynamic(object):
                     sym = info >> 32
                 yield sym
     
+    def symbol_table(self, segments):
+        (symtab,) = self.entries[self.SYMTAB]
+        (syment,) = self.entries[self.SYMENT]
+        symtab = segments.map(symtab)
+        return SymbolTable(self.elf, symtab, syment, self)
+    
     NEEDED = 1
     STRTAB = 5
+    SYMTAB = 6
     RELA = 7
     RELASZ = 8
     RELAENT = 9
     STRSZ = 10
+    SYMENT = 11
     SONAME = 14
     RPATH = 15
     REL = 17
@@ -395,6 +403,41 @@ class Dynamic(object):
     
     def read_str(self, entry):
         return self.elf.read_str(self.strtab, entry)
+
+class SymbolTable(object):
+    def __init__(self, elf, offset, entsize, dynamic):
+        self.elf = elf
+        self.offset = offset
+        self.entsize = entsize
+        self.dynamic = dynamic
+        
+        self.format = self.format[self.elf.elf_class]
+        if self.entsize < self.elf.Struct(self.format).size:
+            raise NotImplementedError("Symbol entry size too small: "
+                "{self.entsize}".format(**locals()))
+    
+    format = {Elf.CLASS32: "L X4x B B H", Elf.CLASS64: "L B B H"}
+    
+    def __getitem__(self, sym):
+        self.elf.file.seek(self.offset + sym * self.entsize)
+        (name, info, other, shndx) = self.elf.read(self.format)
+        bind = info >> 4
+        type = info & 0xF
+        visibility = other & 3
+        if name:
+            name = self.dynamic.read_str(name)
+        else:
+            name = None
+        return dict(
+            name=name, bind=bind, type=type, visibility=visibility,
+            shndx=shndx,
+        )
+    
+    LOCAL = 0
+    WEAK = 2
+    
+    HIDDEN = 2
+    INTERNAL = 1
 
 @contextmanager
 def open(filename):
