@@ -1,3 +1,5 @@
+#! /usr/bin/env python
+
 """
 Features:
 * Python 3, also potential Python 2.6 support
@@ -15,6 +17,7 @@ from misc import SEEK_CUR
 from contextlib import contextmanager
 from collections import defaultdict
 import builtins
+from operator import itemgetter
 from collections import Sequence
 
 class Elf:
@@ -356,3 +359,46 @@ class Dynamic(object):
 def open(filename):
     with builtins.open(filename, "rb") as f:
         yield Elf(f)
+
+def main(elf):
+    with open(elf) as elf:
+        for attr in (
+            "elf_class, data, osabi, abiversion, machine, version, flags"
+        ).split(", "):
+            print("{0}: 0x{1:X}".format(attr, getattr(elf, attr)))
+        
+        print("\nSegments (program headers):")
+        segments = elf.read_segments()
+        for seg in segments:
+            print("  Type", format_tag(seg.type, seg, "INTERP, DYNAMIC"))
+            if seg.type == seg.INTERP:
+                print("    {0}".format(seg.read_interp()))
+        
+        print("\nDynamic section entries:")
+        dynamic = segments.read_dynamic()
+        entries = sorted(dynamic.entries.items(), key=itemgetter(0))
+        for (tag, entries) in entries:
+            if not entries:
+                continue
+            
+            out = format_tag(tag, dynamic, "NEEDED, RPATH, RUNPATH, SONAME")
+            print("  Tag {0} ({1})".format(out, len(entries)))
+            
+            str = "NEEDED, RPATH, RUNPATH, SONAME".split(", ")
+            if tag in (getattr(dynamic, name) for name in str):
+                for str in entries:
+                    print("    {0}".format(dynamic.read_str(str)))
+
+def format_tag(tag, obj, names):
+    names = dict((getattr(obj, name), name) for name in names.split(", "))
+    try:
+        name = names[tag]
+    except LookupError:
+        name = ""
+    else:
+        name = " ({name})".format(**locals())
+    return "0x{tag:X}{name}".format(**locals())
+
+if __name__ == "__main__":
+    from funcparams import command
+    command(main)
