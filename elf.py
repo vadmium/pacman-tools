@@ -383,12 +383,14 @@ class Dynamic(object):
         return SymbolTable(self.elf, symtab, syment, self)
     
     def symbol_hash(self, segments, symtab):
-        hash = self.entries[self.HASH]
-        if not hash:
-            return None
-        (hash,) = hash
-        hash = segments.map(hash)
-        return Hash(self.elf, hash, symtab)
+        for (tag, Class) in ((self.GNU_HASH, GnuHash), (self.HASH, Hash)):
+            hash = self.entries[tag]
+            if not hash:
+                continue
+            (hash,) = hash
+            hash = segments.map(hash)
+            return Class(self.elf, hash, symtab)
+        return dict()
     
     NEEDED = 1
     HASH = 4
@@ -405,6 +407,8 @@ class Dynamic(object):
     RELSZ = 18
     RELENT = 19
     RUNPATH = 29
+    
+    GNU_HASH = 0x6FFFFEF5
     
     tag_attrs = dict(
         rpath=RPATH, runpath=RUNPATH, soname=SONAME, needed=NEEDED,
@@ -450,12 +454,18 @@ class SymbolTable(object):
 
 # Does not really implement a proper mapping because __iter__() yields values
 # rather than keys, but some of the mixin methods might be handy
-class Hash(Mapping):
+class BaseHash(Mapping):
     def __init__(self, elf, offset, symtab):
         self.elf = elf
         self.symtab = symtab
-        
         self.elf.file.seek(offset)
+    
+    def __getitem__(self, name):
+        raise NotImplementedError()
+
+class Hash(BaseHash):
+    def __init__(self, *pos, **kw):
+        BaseHash.__init__(self, *pos, **kw)
         (self.nbucket, self.nchain) = self.elf.read("LL")
         #~ self.offset = self.elf.file.tell()
     
@@ -467,9 +477,33 @@ class Hash(Mapping):
             sym = self.elf.read("L")
             if sym:
                 yield self.symtab[sym]
+
+# Mostly based on https://blogs.oracle.com/ali/entry/gnu_hash_elf_sections
+class GnuHash(BaseHash):
+    def __init__(self, *pos, **kw):
+        BaseHash.__init__(self, *pos, **kw)
+        (nbuckets, self.symndx, maskwords) = self.elf.read("LLL4x")
+        maskwords = self.elf.Struct("{maskwords}I".format(**locals()))
+        self.buckets = self.elf.file.tell() + maskwords.size
+        self.values = self.buckets + nbuckets * 4
     
-    def __getitem__(self, name):
+    def __len__(self):
         raise NotImplementedError()
+    
+    def __iter__(self):
+        for offset in range(self.buckets, self.values, 4):
+            self.elf.file.seek(offset)
+            (bucket,) = self.elf.read("L")
+            if not bucket:
+                continue
+            sym = self.symtab[bucket]
+            while True:
+                self.elf.file.seek(self.values + (bucket - self.symndx) * 4)
+                (value,) = self.elf.read("L")
+                yield self.symtab[bucket]
+                if value & 1:
+                    break
+                bucket += 1
 
 @contextmanager
 def open(filename):
