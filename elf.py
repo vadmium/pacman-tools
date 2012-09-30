@@ -19,6 +19,7 @@ from collections import defaultdict
 import builtins
 from operator import itemgetter
 from collections import (Sequence, Mapping)
+from shorthand import bitmask
 
 class Elf:
     EI_NIDENT = 16
@@ -482,10 +483,13 @@ class Hash(BaseHash):
 class GnuHash(BaseHash):
     def __init__(self, *pos, **kw):
         BaseHash.__init__(self, *pos, **kw)
-        (nbuckets, self.symndx, maskwords) = self.elf.read("LLL4x")
-        maskwords = self.elf.Struct("{maskwords}I".format(**locals()))
-        self.buckets = self.elf.file.tell() + maskwords.size
-        self.values = self.buckets + nbuckets * 4
+        (self.nbuckets, self.symndx, self.maskwords, self.shift2) = (
+            self.elf.read("LLLL"))
+        self.filter = self.elf.file.tell()
+        self.maskword_size = self.elf.Struct("I").size
+        self.maskword_bits = self.maskword_size * 8
+        self.buckets = self.filter + self.maskwords * self.maskword_size
+        self.values = self.buckets + self.nbuckets * 4
     
     def __len__(self):
         raise NotImplementedError()
@@ -504,6 +508,36 @@ class GnuHash(BaseHash):
                 if value & 1:
                     break
                 bucket += 1
+    
+    def __getitem__(self, name):
+        hash = 5381
+        for c in name:
+            hash = hash * 33 + c & bitmask(32)
+        
+        word = hash // self.maskword_bits % self.maskwords
+        self.elf.file.seek(self.filter + word * self.maskword_size)
+        (word,) = self.elf.read("I")
+        mask = 1 << hash % self.maskword_bits
+        mask |= 1 << (hash >> self.shift2) % self.maskword_bits
+        if ~word & mask:
+            raise KeyError(name)
+        
+        self.elf.file.seek(self.buckets + hash % self.nbuckets * 4)
+        (bucket,) = self.elf.read("L")
+        if not bucket:
+            raise KeyError(name)
+        
+        while True:
+            self.elf.file.seek(self.values + (bucket - self.symndx) * 4)
+            (value,) = self.elf.read("L")
+            if value & ~1 == hash & ~1:
+                sym = self.symtab[bucket]
+                if sym["name"] == name:
+                    return sym
+            
+            if value & 1:
+                raise KeyError(name)
+            bucket += 1
 
 @contextmanager
 def open(filename):
