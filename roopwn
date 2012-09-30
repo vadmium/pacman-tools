@@ -25,7 +25,9 @@ from signal import (signal, SIGINT, SIGQUIT, SIG_IGN)
 from collections import defaultdict
 from os import devnull
 from operator import itemgetter
-from contextlib import ExitStack
+from elf import Elf
+from contextlib import (ExitStack, closing)
+from elf import SymbolTable
 from os import execvp
 from lzma import LZMAFile
 import posixpath
@@ -268,7 +270,11 @@ class Analyser(object):
         origin = partial(self.fs.get_origin, filename)
         privileged = is_privileged(mode)
         try:
-            deps = Deps(file, origin, privileged)
+            elf = Elf(file)
+            segments = elf.read_segments()
+            dynamic = segments.read_dynamic()
+            deps = Deps(elf, origin, privileged,
+                segments=segments, dynamic=dynamic)
         except (ValueError, LookupError):
             return
         
@@ -280,6 +286,8 @@ class Analyser(object):
                     fsdecode(filename), fsdecode(interp)), file=stderr)
                 fail = True
         
+        needed_paths = list()
+        needed_missing = False
         for needed in deps.needed():
             if needed["search"]:
                 found = deps.search_lib(needed["name"], self.cache)
@@ -296,9 +304,57 @@ class Analyser(object):
                 if on_needed:
                     on_needed(deps, needed)
                 fail = True
+                needed_missing = True
+                continue
             
-            else:
-                self.deps[found].add(filename)
+            self.deps[found].add(filename)
+            needed_paths.append(found)
+        
+        if needed_missing:
+            self.fail = True
+            return False
+        
+        with ExitStack() as context:
+            symtab = dynamic.symbol_table(segments)
+            
+            hashes = list()
+            hashes.append(dynamic.symbol_hash(segments, symtab))
+            for file in needed_paths:
+                file = context.enter_context(closing(self.fs.open(file)))
+                dsegments = Elf(file).read_segments()
+                ddynamic = dsegments.read_dynamic()
+                dsymtab = ddynamic.symbol_table(dsegments)
+                hashes.append(ddynamic.symbol_hash(dsegments, dsymtab))
+            
+            # Find unresolved symbol references in the file being analysed
+            for sym in dynamic.rel_entries(segments):
+                if not sym:
+                    continue
+                sym = symtab[sym]
+                
+                # Ignore locally bound symbols because their resolution is
+                # not affected by external dependencies. Ignore weak symbols,
+                # since it looks like they default to zero if not defined.
+                if sym["bind"] in (symtab.LOCAL, symtab.WEAK):
+                    continue
+                
+                if sym["visibility"]:
+                    continue
+                
+                for hash in hashes:
+                    try:
+                        defin = hash[sym["name"]]
+                    except LookupError:
+                        continue
+                    if (defin["bind"] != SymbolTable.LOCAL and
+                    defin["visibility"] not in (
+                    SymbolTable.HIDDEN, SymbolTable.INTERNAL)):
+                        break
+                else:
+                    print("{}: unresolved symbol: {}".format(
+                        fsdecode(filename), fsdecode(sym["name"])),
+                        file=stderr)
+                    fail = True
         
         if fail:
             self.fail = True

@@ -13,12 +13,16 @@ import fnmatch
 from collections import defaultdict
 
 class Deps(object):
-    def __init__(self, file, origin, privileged):
-        self.elf = Elf(file)
+    def __init__(self, elf, origin, privileged, segments=None, dynamic=None):
+        self.elf = elf
         self.origin = Thunk(origin)
         self.privileged = privileged
-        self.segments = self.elf.read_segments()
-        self.dynamic = self.segments.read_dynamic()
+        self.segments = segments
+        if self.segments is None:
+            self.segments = self.elf.read_segments()
+        self.dynamic = dynamic
+        if self.dynamic is None:
+            self.dynamic = self.segments.read_dynamic()
     
     def interps(self):
         for seg in self.segments:
