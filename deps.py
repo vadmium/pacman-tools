@@ -1,7 +1,7 @@
 # Reference: https://www.sco.com/developers/gabi/latest/contents.html
 
 from elf import Elf
-from shorthand import Record
+from shorthand import SimpleNamespace
 from os import environb
 from os.path import (isabs, dirname)
 from os import (readlink, listdir)
@@ -29,7 +29,7 @@ class Deps(object):
         for entry in self.dynamic.needed:
             entry = self.dynamic.read_str(entry)
             name = self.sub_origin(entry)
-            yield Record(search=b"/" not in name, name=name, raw_name=entry)
+            yield dict(search=b"/" not in name, name=name, raw_name=entry)
     
     def search_lib(self, lib, cache):
         for dir in self.search_dirs(cache.config_dirs):
@@ -140,10 +140,12 @@ class LibCache(object):
         except (EnvironmentError, ValueError):
             res = None
         else:
-            res = Record((attr, getattr(elf, attr)) for attr in (
+            res = SimpleNamespace()
+            for attr in (
                 "elf_class", "data", "osabi", "abiversion", "machine",
                 "version", "flags",
-            ))
+            ):
+                setattr(res, attr, getattr(elf, attr))
         
         self.cache[filename] = res
         return res

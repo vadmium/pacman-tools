@@ -11,7 +11,7 @@ from os import (fsdecode, fsencode)
 from stat import (S_IXUSR, S_IXGRP, S_IXOTH)
 from os.path import splitext
 from shorthand import strip
-from shorthand import Record
+from shorthand import SimpleNamespace
 from shutil import copyfileobj
 from gzip import GzipFile
 from bz2 import BZ2File
@@ -154,13 +154,13 @@ Options passed to Pacman:
         
         if filedeps:
             def on_needed(deps, needed):
-                (dir, so) = path.split(needed.name)
+                (dir, so) = path.split(needed["name"])
                 try:
                     so = so.rsplit(b".so.", 1)[-2]
                 except IndexError:
                     return
                 so = path.join(dir, so + b".so")
-                if needed.search:
+                if needed["search"]:
                     for match in deps.search_lib(so, anal.cache):
                         anal.fs.owner(match)
                 else:
@@ -172,11 +172,11 @@ Options passed to Pacman:
         for (filename, entry) in anal.fs.paths.items():
             recheck.discard(filename)
             
-            member = entry.member
+            member = entry["member"]
             if not member.isfile():
                 continue
             
-            file = entry.tar.extractfile(member)
+            file = entry["tar"].extractfile(member)
             anal.analyse(file, filename, member.mode, on_needed=on_needed)
         
         if verbose:
@@ -234,20 +234,20 @@ class Analyser(object):
                 fail = True
         
         for needed in deps.needed():
-            if needed.search:
-                found = deps.search_lib(needed.name, self.cache)
+            if needed["search"]:
+                found = deps.search_lib(needed["name"], self.cache)
                 try:
                     found = next(found)
                 except StopIteration:
                     found = None
             else:
-                found = needed.name
+                found = needed["name"]
                 if not self.fs.exists(found):
                     found = None
             
             if found is None:
                 print("{}: {}: needed not found".format(
-                    fsdecode(filename), fsdecode(needed.raw_name)),
+                    fsdecode(filename), fsdecode(needed["raw_name"])),
                     file=stderr)
                 if on_needed:
                     on_needed(deps, needed)
@@ -297,13 +297,13 @@ class PackagesFs(Filesystem):
                 if member.isdir():
                     continue
                 
-                (old, _) = pkg_parse(self.paths[filename].pkg)
+                (old, _) = pkg_parse(self.paths[filename]["pkg"])
                 (new, _) = pkg_parse(pkg)
                 print(fsdecode(new), "duplicates", member.name, "from",
                     fsdecode(old), file=stderr)
                 success = False
             
-            self.paths[filename] = Record(pkg=pkg, tar=tar, member=member)
+            self.paths[filename] = dict(pkg=pkg, tar=tar, member=member)
         
         return success
     
@@ -315,7 +315,7 @@ class PackagesFs(Filesystem):
         except LookupError:
             return OsFilesystem.open(self, path)
         
-        file = file.tar.extractfile(file.member)
+        file = file["tar"].extractfile(file["member"])
         if not file:
             raise ErrNoError(EINVAL, path)
         return file
@@ -327,17 +327,18 @@ class PackagesFs(Filesystem):
     
     def readlink(self, path):
         try:
-            member = self.paths[path].member
+            file = self.paths[path]
         except LookupError:
             return OsFilesystem.readlink(self, path)
         
+        member = file["member"]
         if not member.issym():
             raise ErrnoError(EINVAL, path)
         return member.linkname
     
     def listdir(self, path):
         pkg_dir = self.paths.get(path)
-        if pkg_dir and not pkg_dir.member.isdir():
+        if pkg_dir and not pkg_dir["member"].isdir():
             raise ErrNoError(ENOTDIR, path)
         
         res = list()
@@ -361,23 +362,23 @@ class PackagesFs(Filesystem):
     
     def owner(self, path):
         try:
-            pkg = self.paths[path].pkg
+            file = self.paths[path]
         except LookupError:
             stderr.write(":: ")
             stderr.flush()
             command("pacman --query --owns --".split() + [b"/" + path])
         else:
-            (pkg, ver) = pkg_parse(pkg)
+            (pkg, ver) = pkg_parse(file["pkg"])
             print(":: {} would be installed by {} {}".format(
                 fsdecode(path), fsdecode(pkg), fsdecode(ver)), file=stderr)
     
     def stat(self, path):
         try:
-            member = self.paths[path].member
+            file = self.paths[path]
         except LookupError:
             return stat(b"/" + path)
         else:
-            return Record(st_mode=member.mode)
+            return SimpleNamespace(st_mode=file["member"].mode)
 
 def pkg_parse(name):
     PKG = ".pkg."
@@ -404,8 +405,8 @@ def decompress(file, ext, dir):
     
     decomp_file = basename(decomp_file)
     try:
-        ext = type.ext
-    except AttributeError:
+        ext = type["ext"]
+    except LookupError:
         (_, ext2) = splitext(decomp_file)
         if ext2 == ext:
             ext = ""
@@ -414,17 +415,17 @@ def decompress(file, ext, dir):
     
     decomp_file = path.join(dir, decomp_file + ext)
     
-    with type.comp(file) as src:
+    with type["comp"](file) as src:
         with open(decomp_file, "wb") as dest:
             copyfileobj(src, dest)
     
     return decomp_file
 
 comp_types = dict(
-    gz=Record(comp=GzipFile), tgz=Record(comp=GzipFile, ext="tar"),
-    bz2=Record(comp=BZ2File), tbz=Record(comp=BZ2File, ext="tar"),
-    lzma=Record(comp=LZMAFile),
-    xz=Record(comp=LZMAFile), txz=Record(comp=LZMAFile, ext="tar"),
+    gz=dict(comp=GzipFile), tgz=dict(comp=GzipFile, ext="tar"),
+    bz2=dict(comp=BZ2File), tbz=dict(comp=BZ2File, ext="tar"),
+    lzma=dict(comp=LZMAFile),
+    xz=dict(comp=LZMAFile), txz=dict(comp=LZMAFile, ext="tar"),
 )
 
 def command(proc_args, *popen_args, trace=False, **kw):
