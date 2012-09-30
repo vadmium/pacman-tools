@@ -103,8 +103,7 @@ Options passed to Pacman:
     --needed --recursive
     --asdeps --asexplicit
     --noscriptlet -d --nodeps -f --force
-    --noprogressbar --noconfirm
-""",
+    --noprogressbar --noconfirm""",
         file=stderr)
         return
     
@@ -236,10 +235,7 @@ class Analyser(object):
         for needed in deps.needed():
             if needed["search"]:
                 found = deps.search_lib(needed["name"], self.cache)
-                try:
-                    found = next(found)
-                except StopIteration:
-                    found = None
+                found = next(found, None)
             else:
                 found = needed["name"]
                 if not self.fs.exists(found):
