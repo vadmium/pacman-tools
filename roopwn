@@ -26,6 +26,7 @@ from signal import (signal, SIGINT, SIGQUIT, SIG_IGN)
 from collections import defaultdict
 from os import devnull
 from operator import itemgetter
+from os import execvp
 
 try:
     from lzma import LZMAFile
@@ -93,7 +94,8 @@ def main():
     if help:
         print("""\
 Parameters: <operation> [options . . .] [Pacman arguments . . .]
-Operations: -S --sync -U --upgrade
+Operations handled natively: -S --sync -U --upgrade
+Other operations are passed to Pacman.
 Options handled natively:
     --nofiledeps
     --dryrun
@@ -107,6 +109,12 @@ Options passed to Pacman:
     --noprogressbar --noconfirm""",
         file=stderr)
         return
+    
+    if not sync and not upgrade:
+        proc = ["pacman"] + refresh + xaction_args + through
+        if verbose:
+            command_trace(proc)
+        execvp("pacman", proc)
     
     if upgrade:
         pkgs = through
