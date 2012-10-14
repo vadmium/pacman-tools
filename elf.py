@@ -12,14 +12,13 @@ Reference: https://www.sco.com/developers/gabi/latest/contents.html
 """
 
 from collections import namedtuple
-from struct import Struct
+from elftools.construct import (Struct, Union)
 from misc import SEEK_CUR
-from contextlib import contextmanager
 from collections import defaultdict
-import builtins
 from operator import itemgetter
 from collections import (Sequence, Mapping)
 from shorthand import bitmask
+from elftools.common.utils import struct_parse
 
 class Elf:
     EI_NIDENT = 16
@@ -180,17 +179,6 @@ class Elf:
         
         return Segments(self, self.phoff, self.phentsize, self.phnum)
     
-    def dynamic_entries(self, sect):
-        (offset, size) = sect
-        entsize = self.Struct("iI").size
-        if size % entsize:
-            raise NotImplementedError(
-                "Dynamic section size: {0}".format(size))
-        
-        self.file.seek(offset)
-        for _ in range(size // entsize):
-            yield self.read("iI")
-    
     def symtab_entries(self, sect):
         (start, size) = sect
         # TODO: As tuple is to namedtuple, Struct is to -- NamedStruct!
@@ -269,23 +257,23 @@ class Segments(Sequence):
         return len(self.list)
     def __getitem__(self, i):
         return self.list[i]
+
+def get_dynamic(elf):
+    """Reads dynamic segments into new Dynamic() object"""
     
-    def read_dynamic(self):
-        """Reads dynamic segments into new Dynamic() object"""
+    dynamic = Dynamic(elf)
+    for seg in elf.iter_segments():
+        if seg['p_type'] != 'PT_DYNAMIC':
+            continue
         
-        dynamic = Dynamic(self.elf)
-        for seg in self:
-            if seg.type != seg.DYNAMIC:
-                continue
-            
-            # Assume that the ".dynamic" _section_ is located at the start of
-            # the _segment_ identified by PT_DYNAMIC, otherwise you cannot
-            # find the _section_ (or the "_DYNAMIC" _symbol_ which labels it)
-            # from the program (segment) header alone.
-            dynamic.add((seg.offset, seg.filesz))
-        
-        dynamic.segments_strtab(self)
-        return dynamic
+        # Assume that the ".dynamic" _section_ is located at the start of
+        # the _segment_ identified by PT_DYNAMIC, otherwise you cannot
+        # find the _section_ (or the "_DYNAMIC" _symbol_ which labels it)
+        # from the program (segment) header alone.
+        elf.stream.seek(seg['p_offset'])
+        dynamic.add(elf.stream, seg['p_filesz'])
+    
+    return dynamic
     
     def map(self, start, size=None):
         """Map from memory address to file offset"""
@@ -316,23 +304,32 @@ class Segment(object):
         self.offset = offset
         self.vaddr = vaddr
         self.filesz = filesz
-    
-    DYNAMIC = 2
-    INTERP = 3
-    
-    def read_interp(self):
-        return self.elf.read_str((self.offset, self.filesz))
 
 class Dynamic(object):
     def __init__(self, elf):
         self.elf = elf
+        
+        self.Elf_Dyn = Struct('Elf_Dyn',
+            elf.structs.Elf_sxword('d_tag'),
+            Union('d_un',
+                elf.structs.Elf_xword('d_val'),
+                elf.structs.Elf_addr('d_ptr'),
+            ),
+        )
+        
         self.entries = defaultdict(list)
         for (name, tag) in self.tag_attrs:
             setattr(self, name, self.entries[tag])
     
-    def add(self, sect):
-        for (tag, value) in self.elf.dynamic_entries(sect):
-            self.entries[tag].append(value)
+    def add(self, stream, size):
+        entsize = self.Elf_Dyn.sizeof()
+        if size % entsize:
+            raise NotImplementedError(
+                'Dynamic section size: {0}'.format(size))
+        
+        for _ in range(size // entsize):
+            entry = struct_parse(self.Elf_Dyn, stream)
+            self.entries[entry['d_tag']].append(entry['d_un'])
     
     def segments_strtab(self, segments):
         strtab = self.entries[self.STRTAB]
@@ -541,15 +538,13 @@ class GnuHash(BaseHash):
                 raise KeyError(name)
             bucket += 1
 
-@contextmanager
-def open(filename):
-    with builtins.open(filename, "rb") as f:
-        yield Elf(f)
-
 def main(elf, relocs=False, dyn_syms=False, lookup=()):
     from os import fsencode
+    from elftools.elf.elffile import ELFFile
     
-    with open(elf) as elf:
+    with open(elf, "rb") as elf:
+        elf = ELFFile(elf)
+        
         for attr in (
             "elf_class, data, osabi, abiversion, type, machine, version, "
             "flags"
@@ -557,14 +552,14 @@ def main(elf, relocs=False, dyn_syms=False, lookup=()):
             print("{0}: 0x{1:X}".format(attr, getattr(elf, attr)))
         
         print("\nSegments (program headers):")
-        segments = elf.read_segments()
-        for seg in segments:
-            print("  Type", format_tag(seg.type, seg, "INTERP, DYNAMIC"))
-            if seg.type == seg.INTERP:
-                print("    {0}".format(seg.read_interp()))
+        for seg in elf.iter_segments():
+            if seg["p_type"] == "PT_INTERP":
+                print("  PT_INTERP:", seg.get_interp_name())
+            else:
+                print("  {seg[p_type]}".format(**locals()))
         
         print("\nDynamic section entries:")
-        dynamic = segments.read_dynamic()
+        dynamic = get_dynamic(elf)
         entries = sorted(dynamic.entries.items(), key=itemgetter(0))
         for (tag, entries) in entries:
             if not entries:

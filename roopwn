@@ -25,11 +25,13 @@ from signal import (signal, SIGINT, SIGQUIT, SIG_IGN)
 from collections import defaultdict
 from os import devnull
 from operator import itemgetter
-from elf import Elf
+import elf
+from elftools.elf.elffile import ELFFile
 from contextlib import (ExitStack, closing)
 from elf import SymbolTable
 from os import execvp
 from lzma import LZMAFile
+from elftools.common.exceptions import ELFError
 import posixpath
 
 CACHEDIR = b"/var/cache/pacman/pkg"
@@ -279,12 +281,11 @@ class Analyser(object):
         origin = partial(self.fs.get_origin, filename)
         privileged = is_privileged(mode)
         try:
-            elf = Elf(file)
-            segments = elf.read_segments()
-            dynamic = segments.read_dynamic()
-            deps = Deps(elf, origin, privileged,
-                segments=segments, dynamic=dynamic)
-        except (ValueError, LookupError):
+            file = ELFFile(file)
+            dynamic = elf.get_dynamic(file)
+            deps = Deps(file, origin, privileged,
+                dynamic=dynamic)
+        except (ELFError, LookupError):
             return
         
         for interp in deps.interps():

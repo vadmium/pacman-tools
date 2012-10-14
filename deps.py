@@ -1,6 +1,7 @@
 # Reference: https://www.sco.com/developers/gabi/latest/contents.html
 
-from elf import Elf
+import elf
+from elftools.elf.elffile import ELFFile
 from shorthand import SimpleNamespace
 from os import environb
 from os.path import (isabs, dirname)
@@ -11,23 +12,22 @@ from shorthand import strip
 from os import path
 import fnmatch
 from collections import defaultdict
+from elftools.common.exceptions import ELFError
 
 class Deps(object):
-    def __init__(self, elf, origin, privileged, segments=None, dynamic=None):
-        self.elf = elf
+    def __init__(self, file, origin, privileged, dynamic=None):
+        self.elf = file
         self.origin = Thunk(origin)
         self.privileged = privileged
-        self.segments = segments
-        if self.segments is None:
-            self.segments = self.elf.read_segments()
+        
         self.dynamic = dynamic
         if self.dynamic is None:
-            self.dynamic = self.segments.read_dynamic()
+            self.dynamic = elf.get_dynamic(file)
     
     def interps(self):
-        for seg in self.segments:
-            if seg.type == seg.INTERP:
-                yield seg.read_interp()
+        for seg in self.elf.iter_segments():
+            if seg['p_type'] == 'PT_INTERP':
+                yield seg.get_interp_name()
     
     def needed(self):
         for entry in self.dynamic.needed:
