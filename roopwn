@@ -50,6 +50,7 @@ def main():
     filedeps = True
     verbose = False
     help = False
+    pacman = "pacman"
     
     args = iter(argv[1:])
     for arg in args:
@@ -80,6 +81,8 @@ def main():
                 verbose = True
             elif opt in ("-h", "--help"):
                 help = True
+            elif opt == "--pacman":
+                pacman = next(args)
             else:
                 through.append(arg)
                 if opt.startswith("-"):
@@ -101,6 +104,7 @@ Options handled natively:
     --dryrun
     -v --verbose
     -h --help
+    --pacman: Specify command to run for Pacman
 Options passed to Pacman:
     -y --refresh
     --needed --recursive
@@ -111,22 +115,22 @@ Options passed to Pacman:
         return
     
     if not sync and not upgrade:
-        proc = ["pacman"] + refresh + xaction_args + through
+        proc = [pacman] + refresh + xaction_args + through
         if verbose:
             command_trace(proc)
-        execvp("pacman", proc)
+        execvp(pacman, proc)
     
     if upgrade:
         pkgs = through
     else:
-        pacman = ["pacman"] + sync + refresh + xaction_args
-        command(pacman + ["--downloadonly"] + through, trace=verbose)
+        proc = [pacman] + sync + refresh + xaction_args
+        command(proc + ["--downloadonly"] + through, trace=verbose)
         
         pkgs = list()
-        pacman = ["pacman"] + sync + xaction_args + ["--print"] + through
-        with command_pipe(pacman, stdout=subprocess.PIPE,
-        trace=verbose) as pacman:
-            for pkg in pacman.stdout:
+        proc = [pacman] + sync + xaction_args + ["--print"] + through
+        with command_pipe(proc, stdout=subprocess.PIPE,
+        trace=verbose) as proc:
+            for pkg in proc.stdout:
                 (pkg,) = pkg.splitlines()
                 pkgs.append(path.join(CACHEDIR, basename(pkg)))
         
@@ -145,15 +149,15 @@ Options passed to Pacman:
             if not anal.fs.add(pkg, tar):
                 anal.fail = True
         
-        pacman = "pacman --query --list --quiet --".split()
+        proc = [pacman] + "--query --list --quiet --".split()
         for pkg in pkgs:
             (pkg, _) = pkg_parse(pkg)
-            pacman.append(pkg)
+            proc.append(pkg)
         
         recheck = set()
-        with command_pipe(pacman, stdout=subprocess.PIPE,
-        stderr=command_pipe.NULL, check=False, trace=verbose) as pacman:
-            for file in pacman.stdout:
+        with command_pipe(proc, stdout=subprocess.PIPE,
+        stderr=command_pipe.NULL, check=False, trace=verbose) as proc:
+            for file in proc.stdout:
                 (file,) = file.splitlines()
                 recheck.update(anal.deps.pop(strip_root(file), ()))
         
@@ -204,10 +208,10 @@ Options passed to Pacman:
         raise SystemExit(1)
     
     if not dryrun:
-        pacman = "pacman --upgrade".split()
+        proc = [pacman, "--upgrade"]
         if not upgrade:
-            pacman.append("--noconfirm")
-        command(pacman + xaction_args + ["--"] + pkgs, trace=verbose)
+            proc.append("--noconfirm")
+        command(proc + xaction_args + ["--"] + pkgs, trace=verbose)
         anal.write_db()
 
 class Analyser(object):
@@ -371,7 +375,7 @@ class PackagesFs(Filesystem):
         except LookupError:
             stderr.write(":: ")
             stderr.flush()
-            command("pacman --query --owns --".split() + [b"/" + path])
+            command([pacman] + "--query --owns --".split() + [b"/" + path])
         else:
             (pkg, ver) = pkg_parse(file["pkg"])
             print(":: {} would be installed by {} {}".format(
