@@ -19,7 +19,6 @@ from tempfile import TemporaryDirectory
 from deps import (Deps, Filesystem, OsFilesystem, is_privileged, LibCache)
 from functools import partial
 from os.path import exists
-from misc import CloseAll
 from errno import (EINVAL, ENOENT, ENOTDIR)
 from os import (strerror, stat)
 from signal import (signal, SIGINT, SIGQUIT, SIG_IGN)
@@ -27,16 +26,7 @@ from collections import defaultdict
 from os import devnull
 from operator import itemgetter
 from os import execvp
-
-try:
-    from lzma import LZMAFile
-except ImportError:
-    from contextlib import contextmanager
-    @contextmanager
-    def LZMAFile(filename):
-        with Popen("xz --decompress --stdout --".split() + [filename],
-        stdout=subprocess.PIPE) as xz:
-            yield xz.stdout
+from lzma import LZMAFile
 
 CACHEDIR = b"/var/cache/pacman/pkg"
 
@@ -138,7 +128,7 @@ Options passed to Pacman:
             return
     
     anal = Analyser()
-    with TemporaryDirectory(prefix="roopwn") as work, CloseAll() as cleanup:
+    with TemporaryDirectory(prefix="roopwn") as work, ExitStack() as cleanup:
         print("analysing file dependencies...", file=stderr)
         
         if verbose:
@@ -146,7 +136,7 @@ Options passed to Pacman:
         pkg_names = list()
         for pkg in pkg_files:
             tar = tarfile.open(decompress(pkg, ".tar", work))
-            cleanup.add(tar)
+            cleanup.enter_context(tar)
             
             PKG = ".pkg."
             DASH = "-"
