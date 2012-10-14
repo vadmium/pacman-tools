@@ -121,20 +121,20 @@ Options passed to Pacman:
         execvp(pacman, proc)
     
     if upgrade:
-        pkgs = through
+        pkg_files = through
     else:
         proc = [pacman] + sync + refresh + xaction_args
         command(proc + ["--downloadonly"] + through, trace=verbose)
         
-        pkgs = list()
+        pkg_files = list()
         proc = [pacman] + sync + xaction_args + ["--print"] + through
         with command_pipe(proc, stdout=subprocess.PIPE,
         trace=verbose) as proc:
             for pkg in proc.stdout:
                 (pkg,) = pkg.splitlines()
-                pkgs.append(path.join(CACHEDIR, basename(pkg)))
+                pkg_files.append(path.join(CACHEDIR, basename(pkg)))
         
-        if not pkgs:
+        if not pkg_files:
             return
     
     anal = Analyser()
@@ -143,18 +143,26 @@ Options passed to Pacman:
         
         if verbose:
             print("extracting packages...", file=stderr)
-        for pkg in pkgs:
+        pkg_names = list()
+        for pkg in pkg_files:
             tar = tarfile.open(decompress(pkg, ".tar", work))
             cleanup.add(tar)
+            
+            PKG = ".pkg."
+            DASH = "-"
+            if isinstance(pkg, bytes):
+                PKG = fsencode(PKG)
+                DASH = fsencode(DASH)
+            pkg = basename(pkg).rsplit(PKG, 1)[-2].rsplit(DASH, 1)[0]
+            (name, _) = pkg_parse(pkg)
+            pkg_names.append(name)
+            
             if not anal.fs.add(pkg, tar):
                 anal.fail = True
         
-        proc = [pacman] + "--query --list --quiet --".split()
-        for pkg in pkgs:
-            (pkg, _) = pkg_parse(pkg)
-            proc.append(pkg)
-        
+        # Get list of files which may be removed
         recheck = set()
+        proc = [pacman] + "--query --list --quiet --".split() + pkg_names
         with command_pipe(proc, stdout=subprocess.PIPE,
         stderr=command_pipe.NULL, check=False, trace=verbose) as proc:
             for file in proc.stdout:
@@ -211,7 +219,7 @@ Options passed to Pacman:
         proc = [pacman, "--upgrade"]
         if not upgrade:
             proc.append("--noconfirm")
-        command(proc + xaction_args + ["--"] + pkgs, trace=verbose)
+        command(proc + xaction_args + ["--"] + pkg_files, trace=verbose)
         anal.write_db()
 
 class Analyser(object):
@@ -390,13 +398,10 @@ class PackagesFs(Filesystem):
             return SimpleNamespace(st_mode=file["member"].mode)
 
 def pkg_parse(name):
-    PKG = ".pkg."
     DASH = "-"
     if isinstance(name, bytes):
-        PKG = fsencode(PKG)
         DASH = fsencode(DASH)
-    name = basename(name).rsplit(PKG, 1)[-2]
-    (name, ver, rel, _) = name.rsplit(DASH, 3)
+    (name, ver, rel) = name.rsplit(DASH, 2)
     return (name, DASH.join((ver, rel)))
 
 def decompress(file, ext, dir):
