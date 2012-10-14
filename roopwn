@@ -34,6 +34,7 @@ def main():
     through = list()
     sync = []
     upgrade = []
+    remove = []
     refresh = []
     xaction_args = list()
     dryrun = False
@@ -55,12 +56,15 @@ def main():
                 sync.append(opt)
             elif opt in ("-U", "--upgrade"):
                 upgrade.append(opt)
+            elif opt in ("-R", "--remove"):
+                remove.append(opt)
             elif opt in ("-y", "--refresh"):
                 refresh.append(opt)
             elif opt in (
                 "--needed", "--asdeps", "--asexplicit", "--noscriptlet",
                 "-d", "--nodeps", "--noprogressbar", "-f", "--force",
-                "--recursive", "--noconfirm",
+                "--recursive", "--noconfirm", "-c", "--cascade",
+                "-n", "--nosave", "-s", "-u", "--unneeded",
             ):
                 xaction_args.append(opt)
             elif opt == "--dryrun":
@@ -87,7 +91,7 @@ def main():
     if help:
         print("""\
 Parameters: <operation> [options . . .] [Pacman arguments . . .]
-Operations handled natively: -S --sync -U --upgrade
+Operations handled natively: -S --sync -U --upgrade -R --remove
 Other operations are passed to Pacman.
 Options handled natively:
     --nofiledeps
@@ -97,14 +101,16 @@ Options handled natively:
     --pacman: Specify command to run for Pacman
 Options passed to Pacman:
     -y --refresh
-    --needed --recursive
+    --needed -s --recursive -u --unneeded
+    -c --cascade
     --asdeps --asexplicit
     --noscriptlet -d --nodeps -f --force
-    --noprogressbar --noconfirm""",
+    --noprogressbar --noconfirm
+    -n --nosave""",
         file=stderr)
         return
     
-    if not sync and not upgrade:
+    if not sync and not upgrade and not remove:
         proc = [pacman] + refresh + xaction_args + through
         if verbose:
             command_trace(proc)
@@ -112,7 +118,8 @@ Options passed to Pacman:
     
     if upgrade:
         pkg_files = through
-    else:
+    
+    if sync:
         proc = [pacman] + sync + refresh + xaction_args
         command(proc + ["--downloadonly"] + through, trace=verbose)
         
@@ -127,28 +134,48 @@ Options passed to Pacman:
         if not pkg_files:
             return
     
+    if remove:
+        proc = ([pacman] + remove + refresh + xaction_args + ["--print"] +
+            through)
+        with command_pipe(proc, stdout=subprocess.PIPE, check=False,
+        trace=verbose) as proc:
+            stdout = proc.stdout.read()
+        
+        # Pacman prints messages to stdout, as well as package names!
+        if proc.returncode or b" " in stdout:
+            stderr.buffer.write(stdout)
+            raise SystemExit(proc.returncode)
+        
+        pkg_names = list()
+        for pkg in stdout.splitlines():
+            (pkg, _) = pkg_parse(pkg)
+            pkg_names.append(pkg)
+    
     anal = Analyser()
-    with TemporaryDirectory(prefix="roopwn") as work, ExitStack() as cleanup:
+    with ExitStack() as cleanup:
         print("analysing file dependencies...", file=stderr)
         
-        if verbose:
-            print("extracting packages...", file=stderr)
-        pkg_names = list()
-        for pkg in pkg_files:
-            tar = tarfile.open(decompress(pkg, ".tar", work))
-            cleanup.enter_context(tar)
+        if not remove:
+            work = cleanup.enter_context(TemporaryDirectory(prefix="roopwn"))
             
-            PKG = ".pkg."
-            DASH = "-"
-            if isinstance(pkg, bytes):
-                PKG = fsencode(PKG)
-                DASH = fsencode(DASH)
-            pkg = basename(pkg).rsplit(PKG, 1)[-2].rsplit(DASH, 1)[0]
-            (name, _) = pkg_parse(pkg)
-            pkg_names.append(name)
-            
-            if not anal.fs.add(pkg, tar):
-                anal.fail = True
+            if verbose:
+                print("extracting packages...", file=stderr)
+            pkg_names = list()
+            for pkg in pkg_files:
+                tar = tarfile.open(decompress(pkg, ".tar", work))
+                cleanup.enter_context(tar)
+                
+                PKG = ".pkg."
+                DASH = "-"
+                if isinstance(pkg, bytes):
+                    PKG = fsencode(PKG)
+                    DASH = fsencode(DASH)
+                pkg = basename(pkg).rsplit(PKG, 1)[-2].rsplit(DASH, 1)[0]
+                (name, _) = pkg_parse(pkg)
+                pkg_names.append(name)
+                
+                if not anal.fs.add(pkg, tar):
+                    anal.fail = True
         
         # Get list of files which may be removed
         recheck = set()
@@ -159,35 +186,37 @@ Options passed to Pacman:
                 (file,) = file.splitlines()
                 recheck.update(anal.deps.pop(strip_root(file), ()))
         
-        if verbose:
-            print("searching for new dependencies...", file=stderr)
-        
-        if filedeps:
-            def on_needed(deps, needed):
-                (dir, so) = path.split(needed["name"])
-                try:
-                    so = so.rsplit(b".so.", 1)[-2]
-                except IndexError:
-                    return
-                so = path.join(dir, so + b".so")
-                if needed["search"]:
-                    for match in deps.search_lib(so, anal.cache):
-                        anal.fs.owner(match)
-                else:
-                    if anal.fs.exists(so):
-                        anal.fs.owner(so)
-        else:
-            on_needed = None
-        
-        for (filename, entry) in anal.fs.paths.items():
-            recheck.discard(filename)
+        if not remove:
+            if verbose:
+                print("searching for new dependencies...", file=stderr)
             
-            member = entry["member"]
-            if not member.isfile():
-                continue
+            if filedeps:
+                def on_needed(deps, needed):
+                    (dir, so) = path.split(needed["name"])
+                    try:
+                        so = so.rsplit(b".so.", 1)[-2]
+                    except IndexError:
+                        return
+                    so = path.join(dir, so + b".so")
+                    if needed["search"]:
+                        for match in deps.search_lib(so, anal.cache):
+                            anal.fs.owner(match)
+                    else:
+                        if anal.fs.exists(so):
+                            anal.fs.owner(so)
+            else:
+                on_needed = None
             
-            file = entry["tar"].extractfile(member)
-            anal.analyse(file, filename, member.mode, on_needed=on_needed)
+            for (filename, entry) in anal.fs.paths.items():
+                recheck.discard(filename)
+                
+                member = entry["member"]
+                if not member.isfile():
+                    continue
+                
+                file = entry["tar"].extractfile(member)
+                anal.analyse(file, filename, member.mode,
+                    on_needed=on_needed)
         
         if verbose:
             print("updating old dependencies...", file=stderr)
@@ -206,10 +235,14 @@ Options passed to Pacman:
         raise SystemExit(1)
     
     if not dryrun:
-        proc = [pacman, "--upgrade"]
-        if not upgrade:
-            proc.append("--noconfirm")
-        command(proc + xaction_args + ["--"] + pkg_files, trace=verbose)
+        if remove:
+            proc = [pacman] + remove + xaction_args + ["--"] + pkg_names
+            command(proc, trace=verbose)
+        else:
+            proc = [pacman, "--upgrade"]
+            if sync:
+                proc.append("--noconfirm")
+            command(proc + xaction_args + ["--"] + pkg_files, trace=verbose)
         anal.write_db()
 
 class Analyser(object):
