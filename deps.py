@@ -15,27 +15,27 @@ from elftools.common.exceptions import ELFError
 
 class Deps(object):
     def __init__(self, file, origin, privileged,
-    dynamic=None, stringtable=None):
+    segments=None, dynamic=None):
         self.elf = file
         self.origin = Thunk(origin)
         self.privileged = privileged
         
+        self.segments = segments
+        if self.segments is None:
+            self.segments = elf.Segments(file)
+        
         self.dynamic = dynamic
         if self.dynamic is None:
-            self.dynamic = elf.get_dynamic(file)
-        
-        self.stringtable = stringtable
-        if self.stringtable is None:
-            self.stringtable = self.dynamic.get_stringtable()
+            self.dynamic = self.segments.read_dynamic()
     
     def interps(self):
-        for seg in self.elf.iter_segments():
+        for seg in self.segments:
             if seg['p_type'] == 'PT_INTERP':
                 yield seg.get_interp_name()
     
     def needed(self):
         for entry in self.dynamic.needed:
-            entry = self.stringtable[entry['d_val']]
+            entry = self.dynamic.strtab[entry['d_val']]
             name = self.sub_origin(entry)
             yield dict(search=b"/" not in name, name=name, raw_name=entry)
     
@@ -49,7 +49,7 @@ class Deps(object):
     def search_dirs(self, config_dirs):
         if not self.dynamic.runpath:
             for dirs in self.dynamic.rpath:
-                dirs = self.dynamic.read_str(dirs)
+                dirs = self.dynamic.strtab[dirs['d_val']]
                 for dir in dirs.split(b":"):
                     # $ORIGIN substitution in DT_RPATH string seen in Libre
                     # Office 3.6.2's libmozbootstrap.so file. The Gnu "ldd"
@@ -74,7 +74,7 @@ class Deps(object):
                         yield dir.lstrip(b"/")
         
         for dirs in self.dynamic.runpath:
-            dirs = self.dynamic.read_str(dirs)
+            dirs = self.dynamic.strtab[dirs['d_val']]
             for dir in dirs.split(b":"):
                 try:
                     dir = self.sub_origin(dir)

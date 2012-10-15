@@ -284,10 +284,10 @@ class Analyser(object):
         privileged = is_privileged(mode)
         try:
             file = ELFFile(file)
-            dynamic = elf.get_dynamic(file)
-            stringtable = dynamic.get_stringtable()
+            segments = elf.Segments(file)
+            dynamic = segments.read_dynamic()
             deps = Deps(file, origin, privileged,
-                dynamic=dynamic, stringtable=stringtable)
+                segments=segments, dynamic=dynamic)
         except (ELFError, LookupError):
             return
         
@@ -331,14 +331,14 @@ class Analyser(object):
             return not fail
         
         with ExitStack() as context:
-            symtab = dynamic.symbol_table(stringtable)
+            symtab = dynamic.symbol_table()
             
             hashes = list()
             hashes.append(dynamic.symbol_hash(symtab))
             for file in needed_paths:
                 file = context.enter_context(closing(self.fs.open(file)))
-                ddynamic = elf.get_dynamic(ELFFile(file))
-                dsymtab = ddynamic.symbol_table(ddynamic.get_stringtable())
+                ddynamic = elf.Segments(ELFFile(file)).read_dynamic()
+                dsymtab = ddynamic.symbol_table()
                 hashes.append(ddynamic.symbol_hash(dsymtab))
             
             # Find unresolved symbol references in the file being analysed

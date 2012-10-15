@@ -184,13 +184,6 @@ def matches(elf, header):
     """Probably optimum if this covers most strings in one pass, but does not
     cause excessively long reads"""
     
-    def read_segments(self):
-        if not self.phoff:
-            raise LookupError(
-                "ELF file does not have a program header (segment) table")
-        
-        return Segments(self, self.phoff, self.phentsize, self.phnum)
-    
     def symtab_entries(self, sect):
         (start, size) = sect
         # TODO: As tuple is to namedtuple, Struct is to -- NamedStruct!
@@ -248,78 +241,59 @@ def matches(elf, header):
     STT_SPARC_REGISTER = STT_LOPROC
 
 class Segments(Sequence):
-    def __init__(self, elf, phoff, phentsize, phnum):
+    def __init__(self, elf):
         self.elf = elf
-        
-        format = {
-            self.elf.CLASS32: "L II X I",
-            self.elf.CLASS64: "L 4x II X I",
-        }[elf.elf_class]
-        
-        if phentsize < self.elf.Struct(format).size:
-            raise NotImplementedError("Program header entry size too small: "
-                "{phentsize}".format_map(locals()))
-        
-        self.list = list()
-        for i in range(phnum):
-            self.elf.file.seek(phoff + phentsize * i)
-            self.list.append(Segment(self.elf, *self.elf.read(format)))
+        self.list = tuple(self.elf.iter_segments())
     
     def __len__(self):
         return len(self.list)
     def __getitem__(self, i):
         return self.list[i]
-
-def get_dynamic(elf):
-    """Reads dynamic segments into new Dynamic() object"""
     
-    dynamic = Dynamic(elf)
-    for seg in elf.iter_segments():
-        if seg['p_type'] != 'PT_DYNAMIC':
-            continue
+    def read_dynamic(self):
+        """Reads dynamic segments into new Dynamic() object"""
         
-        # Assume that the ".dynamic" _section_ is located at the start of
-        # the _segment_ identified by PT_DYNAMIC, otherwise you cannot
-        # find the _section_ (or the "_DYNAMIC" _symbol_ which labels it)
-        # from the program (segment) header alone.
-        elf.stream.seek(seg['p_offset'])
-        dynamic.add(elf.stream, seg['p_filesz'])
+        dynamic = Dynamic(self, self.elf)
+        for seg in self:
+            if seg['p_type'] != 'PT_DYNAMIC':
+                continue
+            
+            # Assume that the ".dynamic" _section_ is located at the start of
+            # the _segment_ identified by PT_DYNAMIC, otherwise you cannot
+            # find the _section_ (or the "_DYNAMIC" _symbol_ which labels it)
+            # from the program (segment) header alone.
+            self.elf.stream.seek(seg['p_offset'])
+            dynamic.add(self.elf.stream, seg['p_filesz'])
+        
+        dynamic.strtab = dynamic.get_stringtable()
+        return dynamic
     
-    return dynamic
-
-def segments_map(elf, start, size=None):
-    """Map from memory address to file offset"""
-    
-    end = start
-    if size is not None:
-        end += size
-    
-    # Find a segment containing the memory region
-    found = None
-    for seg in elf.iter_segments():
-        if (start >= seg['p_vaddr'] and
-        end <= seg['p_vaddr'] + seg['p_filesz']):
-            # Region is contained completely within this segment
-            new = start - seg['p_vaddr'] + seg['p_offset']
-            if found is not None and found != new:
-                raise ValueError("Inconsistent mapping for memory "
-                    "address 0x{0:X}".format(start))
-            found = new
-    
-    if found is None:
-        raise LookupError("No segment found for 0x{0:X}".format(start))
-    return found
-
-class Segment(object):
-    def __init__(self, elf, type, offset, vaddr, filesz):
-        self.elf = elf
-        self.type = type
-        self.offset = offset
-        self.vaddr = vaddr
-        self.filesz = filesz
+    def map(self, start, size=None):
+        """Map from memory address to file offset"""
+        
+        end = start
+        if size is not None:
+            end += size
+        
+        # Find a segment containing the memory region
+        found = None
+        for seg in self:
+            if (start >= seg['p_vaddr'] and
+            end <= seg['p_vaddr'] + seg['p_filesz']):
+                # Region is contained completely within this segment
+                new = start - seg['p_vaddr'] + seg['p_offset']
+                if found is not None and found != new:
+                    raise ValueError("Inconsistent mapping for memory "
+                        "address 0x{0:X}".format(start))
+                found = new
+        
+        if found is None:
+            raise LookupError("No segment found for 0x{0:X}".format(start))
+        return found
 
 class Dynamic(object):
-    def __init__(self, elf):
+    def __init__(self, segments, elf):
+        self.segments = segments
         self.elf = elf
         
         self.Elf_Dyn = Struct('Elf_Dyn',
@@ -358,7 +332,7 @@ class Dynamic(object):
         else:
             strsz = None
         
-        strtab = segments_map(self.elf, strtab['d_ptr'], strsz)
+        strtab = self.segments.map(strtab['d_ptr'], strsz)
         return StringTable(self.elf.stream, strtab, strsz)
     
     def rel_entries(self):
@@ -376,7 +350,7 @@ class Dynamic(object):
             size = size['d_val']
             (entsize,) = self.entries[entsize]
             entsize = entsize['d_val']
-            table = segments_map(self.elf, table['d_ptr'], size)
+            table = self.segments.map(table['d_ptr'], size)
             
             if entsize < Struct.sizeof():
                 raise NotImplementedError("{Struct.name} entry size "
@@ -390,12 +364,12 @@ class Dynamic(object):
                 entry = struct_parse(Struct, self.elf.stream)
                 yield Relocation(entry, self.elf)
     
-    def symbol_table(self, stringtable):
+    def symbol_table(self):
         (symtab,) = self.entries[self.SYMTAB]
         (syment,) = self.entries[self.SYMENT]
-        symtab = segments_map(self.elf, symtab['d_ptr'])
+        symtab = self.segments.map(symtab['d_ptr'])
         return SymbolTable(self.elf.stream, symtab, syment['d_val'],
-            self.elf, stringtable)
+            self.elf, self.strtab)
     
     def symbol_hash(self, symtab):
         for (tag, Class) in ((self.GNU_HASH, GnuHash), (self.HASH, Hash)):
@@ -403,7 +377,7 @@ class Dynamic(object):
             if not hash:
                 continue
             (hash,) = hash
-            hash = segments_map(self.elf, hash['d_ptr'])
+            hash = self.segments.map(hash['d_ptr'])
             return Class(self.elf, hash, symtab)
         return dict()
     
@@ -594,15 +568,15 @@ def main(elf, relocs=False, dyn_syms=False, lookup=()):
             print("  {0}: {1}".format(attr, elf[attr]))
         
         print("\nSegments (program headers):")
-        for seg in elf.iter_segments():
+        segments = Segments(elf)
+        for seg in segments:
             if seg["p_type"] == "PT_INTERP":
                 print("  PT_INTERP:", seg.get_interp_name())
             else:
                 print("  {seg[p_type]}".format(**locals()))
         
         print("\nDynamic section entries:")
-        dynamic = get_dynamic(elf)
-        strtab = dynamic.get_stringtable()
+        dynamic = segments.read_dynamic()
         entries = sorted(dynamic.entries.items(), key=itemgetter(0))
         for (tag, entries) in entries:
             if not entries:
@@ -617,11 +591,11 @@ def main(elf, relocs=False, dyn_syms=False, lookup=()):
             str = "NEEDED, RPATH, RUNPATH, SONAME".split(", ")
             if tag in (getattr(dynamic, name) for name in str):
                 for str in entries:
-                    print("    {0}".format(strtab[str["d_val"]]))
+                    print("    {0}".format(dynamic.strtab[str["d_val"]]))
             
         if relocs:
             print("\nRelocation entries:")
-            symtab = dynamic.symbol_table(strtab)
+            symtab = dynamic.symbol_table()
             found = False
             for rel in dynamic.rel_entries():
                 found = True
@@ -635,7 +609,7 @@ def main(elf, relocs=False, dyn_syms=False, lookup=()):
         
         if dyn_syms:
             print("\nSymbols from hash table:")
-            symtab = dynamic.symbol_table(strtab)
+            symtab = dynamic.symbol_table()
             hash = dynamic.symbol_hash(symtab)
             for sym in hash:
                 print("  {0}".format(format_symbol(sym)))
@@ -643,7 +617,7 @@ def main(elf, relocs=False, dyn_syms=False, lookup=()):
         if lookup:
             print("\nSymbol lookup results:")
         for name in lookup:
-            symtab = dynamic.symbol_table(strtab)
+            symtab = dynamic.symbol_table()
             hash = dynamic.symbol_hash(symtab)
             try:
                 sym = hash[fsencode(name)]
