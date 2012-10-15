@@ -23,6 +23,7 @@ class Deps(object):
         self.dynamic = dynamic
         if self.dynamic is None:
             self.dynamic = elf.get_dynamic(file)
+        self.stringtable = self.dynamic.get_stringtable()
     
     def interps(self):
         for seg in self.elf.iter_segments():
@@ -31,7 +32,7 @@ class Deps(object):
     
     def needed(self):
         for entry in self.dynamic.needed:
-            entry = self.dynamic.read_str(entry)
+            entry = self.stringtable[entry['d_val']]
             name = self.sub_origin(entry)
             yield dict(search=b"/" not in name, name=name, raw_name=entry)
     

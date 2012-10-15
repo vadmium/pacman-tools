@@ -18,7 +18,7 @@ from collections import defaultdict
 from operator import itemgetter
 from collections import (Sequence, Mapping)
 from shorthand import bitmask
-from elftools.common.utils import struct_parse
+from elftools.common.utils import (struct_parse, parse_cstring_from_stream)
 
 class Elf:
     EI_NIDENT = 16
@@ -274,28 +274,29 @@ def get_dynamic(elf):
         dynamic.add(elf.stream, seg['p_filesz'])
     
     return dynamic
+
+def segments_map(elf, start, size=None):
+    """Map from memory address to file offset"""
     
-    def map(self, start, size=None):
-        """Map from memory address to file offset"""
-        
-        end = start
-        if size is not None:
-            end += size
-        
-        # Find a segment containing the memory region
-        found = None
-        for seg in self:
-            if start >= seg.vaddr and end <= seg.vaddr + seg.filesz:
-                # Region is contained completely within this segment
-                new = start - seg.vaddr + seg.offset
-                if found is not None and found != new:
-                    raise ValueError("Inconsistent mapping for memory "
-                        "address 0x{0:X}".format(start))
-                found = new
-        
-        if found is None:
-            raise LookupError("No segment found for 0x{0:X}".format(start))
-        return found
+    end = start
+    if size is not None:
+        end += size
+    
+    # Find a segment containing the memory region
+    found = None
+    for seg in elf.iter_segments():
+        if (start >= seg['p_vaddr'] and
+        end <= seg['p_vaddr'] + seg['p_filesz']):
+            # Region is contained completely within this segment
+            new = start - seg['p_vaddr'] + seg['p_offset']
+            if found is not None and found != new:
+                raise ValueError("Inconsistent mapping for memory "
+                    "address 0x{0:X}".format(start))
+            found = new
+    
+    if found is None:
+        raise LookupError("No segment found for 0x{0:X}".format(start))
+    return found
 
 class Segment(object):
     def __init__(self, elf, type, offset, vaddr, filesz):
@@ -331,19 +332,22 @@ class Dynamic(object):
             entry = struct_parse(self.Elf_Dyn, stream)
             self.entries[entry['d_tag']].append(entry['d_un'])
     
-    def segments_strtab(self, segments):
+    def get_stringtable(self):
         strtab = self.entries[self.STRTAB]
-        if strtab:
-            (strtab,) = strtab
-            strsz = self.entries[self.STRSZ]
-            if strsz:
-                (strsz,) = strsz
-            else:
-                strsz = None
-            
-            self.strtab = (segments.map(strtab, strsz), strsz)
+        if not strtab:
+            raise LookupError(
+                "String table entry not found in dynamic linking array")
+        
+        (strtab,) = strtab
+        strsz = self.entries[self.STRSZ]
+        if strsz:
+            (strsz,) = strsz
+            strsz = strsz['d_val']
         else:
-            self.strtab = None
+            strsz = None
+        
+        strtab = segments_map(self.elf, strtab['d_ptr'], strsz)
+        return StringTable(self.elf.stream, strtab, strsz)
     
     def rel_entries(self, segments):
         for (table, size, entsize) in (
@@ -413,9 +417,6 @@ class Dynamic(object):
     tag_attrs = dict(
         rpath=RPATH, runpath=RUNPATH, soname=SONAME, needed=NEEDED,
     ).items()
-    
-    def read_str(self, entry):
-        return self.elf.read_str(self.strtab, entry)
 
 class SymbolTable(object):
     def __init__(self, elf, offset, entsize, dynamic):
@@ -538,6 +539,14 @@ class GnuHash(BaseHash):
                 raise KeyError(name)
             bucket += 1
 
+class StringTable(object):
+    def __init__(self, stream, offset, size):
+        self.stream = stream
+        self.offset = offset
+        self.size = size
+    def __getitem__(self, offset):
+        return parse_cstring_from_stream(self.stream, self.offset + offset)
+
 def main(elf, relocs=False, dyn_syms=False, lookup=()):
     from os import fsencode
     from elftools.elf.elffile import ELFFile
@@ -560,6 +569,7 @@ def main(elf, relocs=False, dyn_syms=False, lookup=()):
         
         print("\nDynamic section entries:")
         dynamic = get_dynamic(elf)
+        strtab = dynamic.get_stringtable()
         entries = sorted(dynamic.entries.items(), key=itemgetter(0))
         for (tag, entries) in entries:
             if not entries:
@@ -574,7 +584,7 @@ def main(elf, relocs=False, dyn_syms=False, lookup=()):
             str = "NEEDED, RPATH, RUNPATH, SONAME".split(", ")
             if tag in (getattr(dynamic, name) for name in str):
                 for str in entries:
-                    print("    {0}".format(dynamic.read_str(str)))
+                    print("    {0}".format(strtab[str["d_val"]]))
             
         if relocs:
             print("\nRelocation entries:")
