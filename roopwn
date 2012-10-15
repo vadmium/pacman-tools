@@ -324,7 +324,7 @@ class Analyser(object):
             self.fail = True
             return False
         
-        if not self.allsymbols and elf.type != elf.ET_EXEC:
+        if not self.allsymbols and file["e_type"] != "ET_EXEC":
             return not fail
         
         with ExitStack() as context:

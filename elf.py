@@ -69,16 +69,26 @@ class Elf:
         else:
             self.file.seek(self.shoff + self.shentsize * shstrndx)
             self.secnames = self.read("4x4xXX II")
+
+def matches(elf, header):
+    # Ignore object file type field because it is unclear which types
+    # should match
     
-    def matches(self, elf):
-        # Ignore object file type field because it is unclear which types
-        # should match
-        if any(getattr(self, name) != getattr(elf, name) for name in (
-            "elf_class", "data", "abiversion",
-            "machine", "version", "flags",
-        )):
-            return False
-        return not self.osabi or self.osabi == elf.osabi
+    ident_a = elf.header['e_ident']
+    ident_b = header['e_ident']
+    if any(ident_a[name] != ident_b[name] for name in (
+        'EI_CLASS', 'EI_DATA', 'EI_ABIVERSION',
+    )):
+        return False
+    
+    if any(elf.header[name] != header[name] for name in (
+        'e_machine', 'e_version', 'e_flags',
+    )):
+        return False
+    
+    # ELFOSABI_SYSV is zero
+    return (ident_a['EI_OSABI'] == 'ELFOSABI_SYSV' or
+        ident_a['EI_OSABI'] == ident_b['EI_OSABI'])
     
     SHN_UNDEF = 0
     SHN_XINDEX = 0xFFFF
@@ -554,11 +564,11 @@ def main(elf, relocs=False, dyn_syms=False, lookup=()):
     with open(elf, "rb") as elf:
         elf = ELFFile(elf)
         
-        for attr in (
-            "elf_class, data, osabi, abiversion, type, machine, version, "
-            "flags"
-        ).split(", "):
-            print("{0}: 0x{1:X}".format(attr, getattr(elf, attr)))
+        print("Header:")
+        for attr in ("EI_CLASS", "EI_DATA", "EI_OSABI", "EI_ABIVERSION"):
+            print("  {0}: {1}".format(attr, elf["e_ident"][attr]))
+        for attr in ("e_type", "e_machine", "e_version", "e_flags"):
+            print("  {0}: {1}".format(attr, elf[attr]))
         
         print("\nSegments (program headers):")
         for seg in elf.iter_segments():

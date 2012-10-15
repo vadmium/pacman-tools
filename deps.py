@@ -2,7 +2,6 @@
 
 import elf
 from elftools.elf.elffile import ELFFile
-from shorthand import SimpleNamespace
 from os import environb
 from os.path import (isabs, dirname)
 from os import (readlink, listdir)
@@ -39,8 +38,8 @@ class Deps(object):
     def search_lib(self, lib, cache):
         for dir in self.search_dirs(cache.config_dirs):
             filename = path.join(dir, lib)
-            elf = cache.lookup(filename)
-            if elf and self.elf.matches(elf):
+            header = cache.lookup(filename)
+            if header and elf.matches(self.elf, header):
                 yield filename
     
     def search_dirs(self, config_dirs):
@@ -153,16 +152,11 @@ class LibCache(object):
         try:
             file = self.fs.open(filename)
             with closing(file):
-                elf = Elf(file)
-        except (EnvironmentError, ValueError):
+                file = ELFFile(file)
+        except (EnvironmentError, ELFError):
             res = None
         else:
-            res = SimpleNamespace()
-            for attr in (
-                "elf_class", "data", "osabi", "abiversion", "machine",
-                "version", "flags",
-            ):
-                setattr(res, attr, getattr(elf, attr))
+            res = file.header
         
         self.cache[filename] = res
         return res
