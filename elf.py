@@ -19,6 +19,7 @@ from operator import itemgetter
 from collections import (Sequence, Mapping)
 from shorthand import bitmask
 from elftools.common.utils import (struct_parse, parse_cstring_from_stream)
+from elftools.elf.sections import Symbol
 
 class Elf:
     EI_NIDENT = 16
@@ -390,19 +391,20 @@ class Dynamic(object):
                     sym = info >> 32
                 yield sym
     
-    def symbol_table(self, segments):
+    def symbol_table(self, stringtable):
         (symtab,) = self.entries[self.SYMTAB]
         (syment,) = self.entries[self.SYMENT]
-        symtab = segments.map(symtab)
-        return SymbolTable(self.elf, symtab, syment, self)
+        symtab = segments_map(self.elf, symtab['d_ptr'])
+        return SymbolTable(self.elf.stream, symtab, syment['d_val'],
+            self.elf, stringtable)
     
-    def symbol_hash(self, segments, symtab):
+    def symbol_hash(self, symtab):
         for (tag, Class) in ((self.GNU_HASH, GnuHash), (self.HASH, Hash)):
             hash = self.entries[tag]
             if not hash:
                 continue
             (hash,) = hash
-            hash = segments.map(hash)
+            hash = segments_map(self.elf, hash['d_ptr'])
             return Class(self.elf, hash, symtab)
         return dict()
     
@@ -429,91 +431,94 @@ class Dynamic(object):
     ).items()
 
 class SymbolTable(object):
-    def __init__(self, elf, offset, entsize, dynamic):
-        self.elf = elf
+    def __init__(self, stream, offset, entsize, elf, stringtable):
+        self.stream = stream
         self.offset = offset
         self.entsize = entsize
-        self.dynamic = dynamic
+        self.stringtable = stringtable
         
-        self.format = self.format[self.elf.elf_class]
-        if self.entsize < self.elf.Struct(self.format).size:
+        self.Elf_Sym = elf.structs.Elf_Sym
+        if self.entsize < self.Elf_Sym.sizeof():
             raise NotImplementedError("Symbol entry size too small: "
                 "{self.entsize}".format(**locals()))
     
-    format = {Elf.CLASS32: "L X4x B B H", Elf.CLASS64: "L B B H"}
-    
     def __getitem__(self, sym):
-        self.elf.file.seek(self.offset + sym * self.entsize)
-        (name, info, other, shndx) = self.elf.read(self.format)
-        bind = info >> 4
-        type = info & 0xF
-        visibility = other & 3
+        """Get Symbol() object for given table index"""
+        
+        self.stream.seek(self.offset + sym * self.entsize)
+        entry = struct_parse(self.Elf_Sym, self.stream)
+        
+        name = entry['st_name']
         if name:
-            name = self.dynamic.read_str(name)
+            name = self.stringtable[name]
         else:
             name = None
-        return dict(
-            name=name, bind=bind, type=type, visibility=visibility,
-            shndx=shndx,
-        )
-    
-    LOCAL = 0
-    WEAK = 2
-    
-    HIDDEN = 2
-    INTERNAL = 1
+        
+        return Symbol(entry, name)
 
 # Does not really implement a proper mapping because __iter__() yields values
 # rather than keys, but some of the mixin methods might be handy
 class BaseHash(Mapping):
     def __init__(self, elf, offset, symtab):
-        self.elf = elf
+        self.stream = elf.stream
         self.symtab = symtab
-        self.elf.file.seek(offset)
+        self.stream.seek(offset)
     
     def __getitem__(self, name):
         raise NotImplementedError()
 
 class Hash(BaseHash):
-    def __init__(self, *pos, **kw):
-        BaseHash.__init__(self, *pos, **kw)
-        (self.nbucket, self.nchain) = self.elf.read("LL")
+    def __init__(self, elf, *pos, **kw):
+        BaseHash.__init__(self, elf, *pos, **kw)
+        self.Elf_word = elf.structs.Elf_word
+        self.header = Struct('Hash table header',
+            self.Elf_word('nbucket'), self.Elf_word('nchain'))
+        self.header = struct_parse(self.header, self.stream)
         #~ self.offset = self.elf.file.tell()
     
     def __len__(self):
-        return self.nchain
+        return self.header['nchain']
     
     def __iter__(self):
-        for _ in range(self.nbucket + self.nchain):
-            sym = self.elf.read("L")
+        for _ in range(self.header['nbucket'] + self.header['nchain']):
+            sym = struct_parse(self.Elf_word(None), self.stream)
             if sym:
                 yield self.symtab[sym]
 
 # Mostly based on https://blogs.oracle.com/ali/entry/gnu_hash_elf_sections
 class GnuHash(BaseHash):
-    def __init__(self, *pos, **kw):
-        BaseHash.__init__(self, *pos, **kw)
-        (self.nbuckets, self.symndx, self.maskwords, self.shift2) = (
-            self.elf.read("LLLL"))
-        self.filter = self.elf.file.tell()
-        self.maskword_size = self.elf.Struct("I").size
+    def __init__(self, elf, *pos, **kw):
+        BaseHash.__init__(self, elf, *pos, **kw)
+        self.Elf_word = elf.structs.Elf_word
+        self.Maskword = elf.structs.Elf_xword("Maskword")
+        self.header = Struct('GNU hash table header',
+            self.Elf_word('nbuckets'),
+            self.Elf_word('symndx'),
+            self.Elf_word('maskwords'),
+            self.Elf_word('shift2'),
+        )
+        self.header = struct_parse(self.header, self.stream)
+        self.filter = self.stream.tell()
+        self.maskword_size = self.Maskword.sizeof()
         self.maskword_bits = self.maskword_size * 8
-        self.buckets = self.filter + self.maskwords * self.maskword_size
-        self.values = self.buckets + self.nbuckets * 4
+        self.buckets = (self.filter +
+            self.header['maskwords'] * self.maskword_size)
+        self.values = self.buckets + self.header['nbuckets'] * 4
     
     def __len__(self):
         raise NotImplementedError()
     
     def __iter__(self):
         for offset in range(self.buckets, self.values, 4):
-            self.elf.file.seek(offset)
-            (bucket,) = self.elf.read("L")
+            self.stream.seek(offset)
+            bucket = struct_parse(self.Elf_word(None), self.stream)
             if not bucket:
                 continue
             sym = self.symtab[bucket]
             while True:
-                self.elf.file.seek(self.values + (bucket - self.symndx) * 4)
-                (value,) = self.elf.read("L")
+                offset = self.values + (bucket - self.header['symndx']) * 4
+                value = struct_parse(self.Elf_word(None), self.stream,
+                    stream_pos=offset)
                 yield self.symtab[bucket]
                 if value & 1:
                     break
@@ -524,25 +529,26 @@ class GnuHash(BaseHash):
         for c in name:
             hash = hash * 33 + c & bitmask(32)
         
-        word = hash // self.maskword_bits % self.maskwords
-        self.elf.file.seek(self.filter + word * self.maskword_size)
-        (word,) = self.elf.read("I")
+        word = hash // self.maskword_bits % self.header['maskwords']
+        self.stream.seek(self.filter + word * self.maskword_size)
+        word = struct_parse(self.Maskword, self.stream)
         mask = 1 << hash % self.maskword_bits
-        mask |= 1 << (hash >> self.shift2) % self.maskword_bits
+        mask |= 1 << (hash >> self.header['shift2']) % self.maskword_bits
         if ~word & mask:
             raise KeyError(name)
         
-        self.elf.file.seek(self.buckets + hash % self.nbuckets * 4)
-        (bucket,) = self.elf.read("L")
+        self.stream.seek(self.buckets + hash % self.header['nbuckets'] * 4)
+        bucket = struct_parse(self.Elf_word(None), self.stream)
         if not bucket:
             raise KeyError(name)
         
         while True:
-            self.elf.file.seek(self.values + (bucket - self.symndx) * 4)
-            (value,) = self.elf.read("L")
+            offset = self.values + (bucket - self.header['symndx']) * 4
+            value = struct_parse(self.Elf_word(None), self.stream,
+                stream_pos=offset)
             if value & ~1 == hash & ~1:
                 sym = self.symtab[bucket]
-                if sym["name"] == name:
+                if sym.name == name:
                     return sym
             
             if value & 1:
@@ -598,7 +604,7 @@ def main(elf, relocs=False, dyn_syms=False, lookup=()):
             
         if relocs:
             print("\nRelocation entries:")
-            symtab = dynamic.symbol_table(segments)
+            symtab = dynamic.symbol_table(strtab)
             found = False
             for sym in dynamic.rel_entries(segments):
                 found = True
@@ -612,20 +618,22 @@ def main(elf, relocs=False, dyn_syms=False, lookup=()):
         
         if dyn_syms:
             print("\nSymbols from hash table:")
-            symtab = dynamic.symbol_table(segments)
-            hash = dynamic.symbol_hash(segments, symtab)
+            symtab = dynamic.symbol_table(strtab)
+            hash = dynamic.symbol_hash(symtab)
             for sym in hash:
-                print("  {sym[name]}: bind {sym[bind]}, type {sym[type]}, visibility {sym[visibility]}, shndx {sym[shndx]}".format(**locals()))
+                print("  {0}".format(format_symbol(sym)))
         
+        if lookup:
+            print("\nSymbol lookup results:")
         for name in lookup:
-            symtab = dynamic.symbol_table(segments)
-            hash = dynamic.symbol_hash(segments, symtab)
+            symtab = dynamic.symbol_table(strtab)
+            hash = dynamic.symbol_hash(symtab)
             try:
                 sym = hash[fsencode(name)]
             except LookupError:
-                print("Symbol not found:", name)
+                print("  Symbol not found:", name)
             else:
-                print("{sym[name]}: bind {sym[bind]}, type {sym[type]}, visibility {sym[visibility]}, shndx {sym[shndx]}".format(**locals()))
+                print("  {0}".format(format_symbol(sym)))
 
 def format_tag(tag, obj, names):
     names = dict((getattr(obj, name), name) for name in names.split(", "))
@@ -636,6 +644,13 @@ def format_tag(tag, obj, names):
     else:
         name = " ({name})".format(**locals())
     return "0x{tag:X}{name}".format(**locals())
+
+def format_symbol(sym):
+    return ("{sym.name}: "
+        "{sym.entry[st_info][bind]}, "
+        "{sym.entry[st_info][type]}, "
+        "{sym.entry[st_other][visibility]}, "
+        "shndx {sym.entry[st_shndx]}".format(**locals()))
 
 if __name__ == "__main__":
     from funcparams import command

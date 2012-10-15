@@ -14,7 +14,8 @@ from collections import defaultdict
 from elftools.common.exceptions import ELFError
 
 class Deps(object):
-    def __init__(self, file, origin, privileged, dynamic=None):
+    def __init__(self, file, origin, privileged,
+    dynamic=None, stringtable=None):
         self.elf = file
         self.origin = Thunk(origin)
         self.privileged = privileged
@@ -22,7 +23,10 @@ class Deps(object):
         self.dynamic = dynamic
         if self.dynamic is None:
             self.dynamic = elf.get_dynamic(file)
-        self.stringtable = self.dynamic.get_stringtable()
+        
+        self.stringtable = stringtable
+        if self.stringtable is None:
+            self.stringtable = self.dynamic.get_stringtable()
     
     def interps(self):
         for seg in self.elf.iter_segments():
