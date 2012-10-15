@@ -28,47 +28,7 @@ class Elf:
     EI_OSABI = 7
     EI_ABIVERSION = 8
     
-    CLASS32 = 1
-    CLASS64 = 2
-    
-    DATA2LSB = 1
-    DATA2MSB = 2
-    
     ET_EXEC = 2
-    
-    def __init__(self, file):
-        self.file = file
-        
-        ident = self.file.read(self.EI_NIDENT)
-        
-        if not ident[self.EI_MAG:].startswith(b"\x7FELF"):
-            raise ValueError("Unexpected ELF magic number identification")
-        
-        for (name, index) in dict(
-            elf_class=self.EI_CLASS, data=self.EI_DATA,
-            osabi=self.EI_OSABI, abiversion=self.EI_ABIVERSION
-        ).items():
-            setattr(self, name, ord(ident[index:][:1]))
-        
-        self.enc = {self.DATA2LSB: "<", self.DATA2MSB: ">"}[self.data]
-        format = {self.CLASS32: "L", self.CLASS64: "Q"}[self.elf_class]
-        self.class_format = dict(
-            I=format,
-            i=format.lower(),
-            X="{}x".format(Struct(self.enc + format).size)
-        )
-        
-        (
-            self.type, self.machine, self.version,
-            self.phoff, self.shoff, self.flags,
-            self.phentsize, self.phnum, self.shentsize, self.shnum, shstrndx,
-        ) = self.read("HHL X IIL 2x HHHHH")
-        
-        if shstrndx == self.SHN_UNDEF:
-            self.secnames = None
-        else:
-            self.file.seek(self.shoff + self.shentsize * shstrndx)
-            self.secnames = self.read("4x4xXX II")
 
 def matches(elf, header):
     # Ignore object file type field because it is unclear which types
@@ -101,14 +61,6 @@ def matches(elf, header):
     
     SHN_UNDEF = 0
     SHN_XINDEX = 0xFFFF
-    
-    SHT_NOBITS = 8
-    
-    def getname(self, name):
-        if self.secnames is None:
-            return None
-        else:
-            return self.read_str(self.secnames, name)
 
 def iter_strings(elf, secname):
     sec = elf.get_section_by_name(secname)
@@ -141,99 +93,7 @@ def iter_strings(elf, secname):
         
         yield bytes(sym)
     
-    def read_str(self, sect, offset=None):
-        """If size is not given, or offset _is_ given, then string must be
-        terminated with 0. If offset is not given then string may
-        additionally be terminated by the end of the section determined by
-        size."""
-        (start, size) = sect
-        if offset is not None:
-            start += offset
-            if size is not None:
-                size -= offset
-        
-        self.file.seek(start)
-        str = bytearray()
-        while True:
-            chunk = self.STR_BUFFER
-            if size is not None and size < chunk:
-                chunk = size
-            chunk = self.file.read(chunk)
-            if not chunk:
-                if offset is not None:
-                    raise EOFError("Unterminated string at {}".format(start))
-                else:
-                    break
-            if size is not None:
-                size -= len(chunk)
-            
-            try:
-                end = chunk.index(b"\x00")
-            except ValueError:
-                str.extend(chunk)
-            else:
-                str.extend(chunk[:end])
-                break
-        
-        return bytes(str)
-    STR_BUFFER = 0x100
-    """Probably optimum if this covers most strings in one pass, but does not
-    cause excessively long reads"""
-    
-    def symtab_entries(self, sect):
-        (start, size) = sect
-        # TODO: As tuple is to namedtuple, Struct is to -- NamedStruct!
-        if self.elf_class == self.CLASS32:
-            format = "L I X B 1x H"
-            keys = ("name", "value", "info", "shndx")
-        if self.elf_class == self.CLASS64:
-            format = "L B 1x H I X"
-            keys = ("name", "info", "shndx", "value")
-        format = self.Struct(format)
-        entsize = format.size
-        
-        if size % entsize:
-            msg = '".symtab" section size: {}'.format(size)
-            raise NotImplementedError(msg)
-        
-        for offset in range(0, size, entsize * self.SYMTAB_BUFFER):
-            self.file.seek(start + offset)
-            chunk_len = min(size - offset, entsize * self.SYMTAB_BUFFER)
-            chunk = self.file.read(chunk_len)
-            
-            for offset in range(0, chunk_len, entsize):
-                values = format.unpack_from(chunk, offset)
-                fields = dict(zip(keys, values))
-                
-                bind = fields["info"] >> 4
-                type = fields["info"] & 0xF
-                del fields["info"]
-                
-                yield self.SymtabEntry(bind=bind, type=type, **fields)
-    SYMTAB_BUFFER = 0x100
-    
-    SymtabEntry = namedtuple("SymtabEntry", "name, value, bind, type, shndx")
     STB_WEAK = 2
-    STT_LOPROC = 13
-    
-    def Struct(self, format):
-        """Extension to struct.Struct()
-        
-        I (capital eye) -> unsigned word, depending on ELF class
-        i (lowercase eye) -> signed word
-        X (capital ex) -> padding of word size
-        """
-        
-        for (old, new) in self.class_format.items():
-            format = format.replace(old, new)
-        return Struct(self.enc + format)
-    
-    def read(self, format):
-        s = self.Struct(format)
-        return s.unpack(self.file.read(s.size))
-    
-    EM_SPARC = 2
-    EM_SPARCV9 = 43
 
 STT_SPARC_REGISTER = "STT_LOPROC"
 
