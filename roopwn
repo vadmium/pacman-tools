@@ -340,32 +340,33 @@ class Analyser(object):
                 hashes.append(ddynamic.symbol_hash(dsymtab))
             
             # Find unresolved symbol references in the file being analysed
-            for sym in dynamic.rel_entries(segments):
-                if not sym:
+            for rel in dynamic.rel_entries():
+                if not rel['r_info_sym']:
                     continue
-                sym = symtab[sym]
+                sym = symtab[rel['r_info_sym']]
                 
                 # Ignore locally bound symbols because their resolution is
                 # not affected by external dependencies. Ignore weak symbols,
                 # since it looks like they default to zero if not defined.
-                if sym["bind"] in (symtab.LOCAL, symtab.WEAK):
+                if sym['st_info']['bind'] in ('STB_LOCAL', 'STB_WEAK'):
                     continue
                 
-                if sym["visibility"]:
+                # STV_DEFAULT is zero
+                if sym['st_other']['visibility'] != 'STV_DEFAULT':
                     continue
                 
                 for hash in hashes:
                     try:
-                        defin = hash[sym["name"]]
+                        defin = hash[sym.name]
                     except LookupError:
                         continue
-                    if (defin["bind"] != SymbolTable.LOCAL and
-                    defin["visibility"] not in (
-                    SymbolTable.HIDDEN, SymbolTable.INTERNAL)):
+                    if (defin['st_info']['bind'] != 'STB_LOCAL' and
+                    defin['st_other']['visibility'] not in (
+                    'STV_HIDDEN', 'STV_INTERNAL')):
                         break
                 else:
                     print("{}: unresolved symbol: {}".format(
-                        fsdecode(filename), fsdecode(sym["name"])),
+                        fsdecode(filename), fsdecode(sym.name)),
                         file=stderr)
                     fail |= self.symboldeps
         

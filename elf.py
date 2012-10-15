@@ -20,6 +20,7 @@ from collections import (Sequence, Mapping)
 from shorthand import bitmask
 from elftools.common.utils import (struct_parse, parse_cstring_from_stream)
 from elftools.elf.sections import Symbol
+from elftools.elf.relocation import Relocation
 
 class Elf:
     EI_NIDENT = 16
@@ -360,10 +361,11 @@ class Dynamic(object):
         strtab = segments_map(self.elf, strtab['d_ptr'], strsz)
         return StringTable(self.elf.stream, strtab, strsz)
     
-    def rel_entries(self, segments):
-        for (table, size, entsize) in (
-            (self.RELA, self.RELASZ, self.RELAENT),
-            (self.REL, self.RELSZ, self.RELENT),
+    def rel_entries(self):
+        for (table, size, entsize, Struct) in (
+            (self.RELA, self.RELASZ, self.RELAENT,
+                self.elf.structs.Elf_Rela),
+            (self.REL, self.RELSZ, self.RELENT, self.elf.structs.Elf_Rel),
         ):
             entries = self.entries[table]
             if not entries:
@@ -371,25 +373,22 @@ class Dynamic(object):
             
             (table,) = entries
             (size,) = self.entries[size]
+            size = size['d_val']
             (entsize,) = self.entries[entsize]
-            table = segments.map(table, size)
+            entsize = entsize['d_val']
+            table = segments_map(self.elf, table['d_ptr'], size)
             
-            format = "XI"
-            if entsize < self.elf.Struct(format).size:
-                raise NotImplementedError("{name} entry size too small: "
-                    "{entsize}".format(**locals()))
+            if entsize < Struct.sizeof():
+                raise NotImplementedError("{Struct.name} entry size "
+                    "too small: {entsize}".format(**locals()))
             if size % entsize:
                 raise NotImplementedError(
-                    "{name} table size: {size}".format(**locals()))
+                    "{Struct.name} table size: {size}".format(**locals()))
             
             for offset in range(table, table + size, entsize):
-                self.elf.file.seek(offset)
-                (info,) = self.elf.read(format)
-                if self.elf.elf_class == self.elf.CLASS32:
-                    sym = info >> 8
-                if self.elf.elf_class == self.elf.CLASS64:
-                    sym = info >> 32
-                yield sym
+                self.elf.stream.seek(offset)
+                entry = struct_parse(Struct, self.elf.stream)
+                yield Relocation(entry, self.elf)
     
     def symbol_table(self, stringtable):
         (symtab,) = self.entries[self.SYMTAB]
@@ -606,11 +605,11 @@ def main(elf, relocs=False, dyn_syms=False, lookup=()):
             print("\nRelocation entries:")
             symtab = dynamic.symbol_table(strtab)
             found = False
-            for sym in dynamic.rel_entries(segments):
+            for rel in dynamic.rel_entries():
                 found = True
-                if sym:
-                    sym = symtab[sym]
-                    print("  {sym[name]} bind {sym[bind]}, type {sym[type]}, visibility {sym[visibility]}, shndx {sym[shndx]}".format(**locals()))
+                if rel["r_info_sym"]:
+                    sym = symtab[rel["r_info_sym"]]
+                    print("  {0}".format(format_symbol(sym)))
                 else:
                     print("  Sym UNDEF")
             if not found:
