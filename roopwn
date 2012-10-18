@@ -46,6 +46,8 @@ def main():
     verbose = False
     help = False
     pacman = "pacman"
+    allsymbols = False
+    symboldeps = True
     
     args = iter(argv[1:])
     for arg in args:
@@ -75,6 +77,10 @@ def main():
                 dryrun = True
             elif opt == "--nofiledeps":
                 filedeps = False
+            elif opt == "--allsymbols":
+                allsymbols = True
+            elif opt == "--nosymboldeps":
+                symboldeps = False
             elif opt in ("-v", "--verbose"):
                 verbose = True
             elif opt in ("-h", "--help"):
@@ -98,7 +104,7 @@ Parameters: <operation> [options . . .] [Pacman arguments . . .]
 Operations handled natively: -S --sync -U --upgrade -R --remove
 Other operations are passed to Pacman.
 Options handled natively:
-    --nofiledeps
+    --nofiledeps --allsymbols --nosymboldeps
     --dryrun
     -v --verbose
     -h --help
@@ -155,7 +161,7 @@ Options passed to Pacman:
             (pkg, _) = pkg_parse(pkg)
             pkg_names.append(pkg)
     
-    anal = Analyser(pacman)
+    anal = Analyser(pacman, allsymbols, symboldeps)
     with ExitStack() as cleanup:
         print("analysing file dependencies...", file=stderr)
         
@@ -252,7 +258,10 @@ Options passed to Pacman:
         anal.write_db()
 
 class Analyser(object):
-    def __init__(self, pacman):
+    def __init__(self, pacman, allsymbols, symboldeps):
+        self.allsymbols = allsymbols
+        self.symboldeps = symboldeps
+        
         # A set of dependent ("client") files for each independent
         # ("supplier") file. Some dependent files may no longer actually
         # exist or be dependent, because they are not delisted when their
@@ -314,6 +323,9 @@ class Analyser(object):
             self.fail = True
             return False
         
+        if not self.allsymbols and elf.type != elf.ET_EXEC:
+            return not fail
+        
         with ExitStack() as context:
             symtab = dynamic.symbol_table(segments)
             
@@ -354,7 +366,7 @@ class Analyser(object):
                     print("{}: unresolved symbol: {}".format(
                         fsdecode(filename), fsdecode(sym["name"])),
                         file=stderr)
-                    fail = True
+                    fail |= self.symboldeps
         
         if fail:
             self.fail = True

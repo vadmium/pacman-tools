@@ -35,6 +35,8 @@ class Elf:
     DATA2LSB = 1
     DATA2MSB = 2
     
+    ET_EXEC = 2
+    
     def __init__(self, file):
         self.file = file
         
@@ -58,10 +60,10 @@ class Elf:
         )
         
         (
-            self.machine, self.version,
+            self.type, self.machine, self.version,
             self.phoff, self.shoff, self.flags,
             self.phentsize, self.phnum, self.shentsize, self.shnum, shstrndx,
-        ) = self.read("2x HL X IIL 2x HHHHH")
+        ) = self.read("HHL X IIL 2x HHHHH")
         
         if shstrndx == self.SHN_UNDEF:
             self.secnames = None
@@ -549,7 +551,8 @@ def main(elf, relocs=False, dyn_syms=False, lookup=()):
     
     with open(elf) as elf:
         for attr in (
-            "elf_class, data, osabi, abiversion, machine, version, flags"
+            "elf_class, data, osabi, abiversion, type, machine, version, "
+            "flags"
         ).split(", "):
             print("{0}: 0x{1:X}".format(attr, getattr(elf, attr)))
         
