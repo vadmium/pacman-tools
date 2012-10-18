@@ -25,6 +25,7 @@ from signal import (signal, SIGINT, SIGQUIT, SIG_IGN)
 from collections import defaultdict
 from os import devnull
 from operator import itemgetter
+from contextlib import ExitStack
 from os import execvp
 from lzma import LZMAFile
 
