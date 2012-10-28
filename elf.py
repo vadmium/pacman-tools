@@ -307,10 +307,10 @@ class Dynamic(object):
         
         self.Elf_Dyn = Struct('Elf_Dyn',
             elf.structs.Elf_sxword('d_tag'),
-            Union('d_un',
-                elf.structs.Elf_xword('d_val'),
-                elf.structs.Elf_addr('d_ptr'),
-            ),
+            #~ Union('d_un',
+            elf.structs.Elf_xword('d_un'),
+                #~ elf.structs.Elf_addr('d_ptr'),
+            #~ ),
         )
         
         self.entries = defaultdict(list)
@@ -337,11 +337,11 @@ class Dynamic(object):
         strsz = self.entries[self.STRSZ]
         if strsz:
             (strsz,) = strsz
-            strsz = strsz['d_val']
+            #~ strsz = strsz['d_val']
         else:
             strsz = None
         
-        strtab = self.segments.map(strtab['d_ptr'], strsz)
+        strtab = self.segments.map(strtab,strsz)#['d_ptr'], strsz)
         return StringTable(self.elf.stream, strtab, strsz)
     
     def rel_entries(self):
@@ -356,7 +356,7 @@ class Dynamic(object):
         entries = self.entries[self.JMPREL]
         if entries:
             (pltrel,) = self.entries[self.PLTREL]
-            pltrel = pltrel['d_val']
+            #~ pltrel = pltrel['d_val']
             yield from self.rel_table_entries(entries, self.PLTRELSZ, pltrel)
     
     def rel_table_entries(self, entries, size, type):
@@ -367,10 +367,10 @@ class Dynamic(object):
         
         (table,) = entries
         (size,) = self.entries[size]
-        size = size['d_val']
+        #~ size = size['d_val']
         (entsize,) = self.entries[entsize]
-        entsize = entsize['d_val']
-        table = self.segments.map(table['d_ptr'], size)
+        #~ entsize = entsize['d_val']
+        table = self.segments.map(table,size)#['d_ptr'], size)
         
         if entsize < Struct.sizeof():
             raise NotImplementedError("{Struct.name} entry size "
@@ -389,8 +389,8 @@ class Dynamic(object):
     def symbol_table(self):
         (symtab,) = self.entries[self.SYMTAB]
         (syment,) = self.entries[self.SYMENT]
-        symtab = self.segments.map(symtab['d_ptr'])
-        return SymbolTable(self.elf.stream, symtab, syment['d_val'],
+        symtab = self.segments.map(symtab)#['d_ptr'])
+        return SymbolTable(self.elf.stream, symtab, syment,#['d_val'],
             self.elf, self.strtab)
     
     def symbol_hash(self, symtab):
@@ -399,7 +399,7 @@ class Dynamic(object):
             if not hash:
                 continue
             (hash,) = hash
-            hash = self.segments.map(hash['d_ptr'])
+            hash = self.segments.map(hash)#['d_ptr'])
             return Class(self.elf, hash, symtab)
         return dict()
     
@@ -616,7 +616,7 @@ def main(elf, relocs=False, dyn_syms=False, lookup=()):
             str = "NEEDED, RPATH, RUNPATH, SONAME".split(", ")
             if tag in (getattr(dynamic, name) for name in str):
                 for str in entries:
-                    print("    {0}".format(dynamic.strtab[str["d_val"]]))
+                    print("    {0}".format(dynamic.strtab[str]))#["d_val"]]))
             
         if relocs:
             print("\nRelocation entries:")
