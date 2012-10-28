@@ -69,6 +69,8 @@ class Deps(object):
             yield dir
     
     def sub_origin(self, str):
+        # Do not have to check that the full name is ORIGIN (rather than just
+        # prefixed) because behaviour for other names is not specified
         subs = (b"$ORIGIN", b"${ORIGIN}")
         if all(sub not in str for sub in subs):
             return str
@@ -202,7 +204,8 @@ class Filesystem(object):
     def realpath(self, path):
         # Break the path into components. Working from the start out to the
         # filename, check if each component is a link. Each link expands to a
-        # sub-path, and its components may require further expansion.
+        # sub-path, and the sub-path's components may require further
+        # expansion.
         
         # Stack of iterators of path components to expand. Each stack level
         # corresponds to the queue of unexpanded components of a link, or for

@@ -28,6 +28,7 @@ from operator import itemgetter
 from contextlib import ExitStack
 from os import execvp
 from lzma import LZMAFile
+import posixpath
 
 CACHEDIR = b"/var/cache/pacman/pkg"
 
@@ -180,12 +181,14 @@ Options passed to Pacman:
         
         # Get list of files which may be removed
         recheck = set()
+        realpath = OsFilesystem().realpath
         proc = [pacman] + "--query --list --quiet --".split() + pkg_names
         with command_pipe(proc, stdout=subprocess.PIPE,
         stderr=command_pipe.NULL, check=False, trace=verbose) as proc:
             for file in proc.stdout:
                 (file,) = file.splitlines()
-                recheck.update(anal.deps.pop(strip_root(file), ()))
+                file = realpath(strip_root(file))
+                recheck.update(anal.deps.pop(file, ()))
         
         if not remove:
             if verbose:
@@ -335,6 +338,9 @@ class PackagesFs(Filesystem):
             if filename.startswith(b"."):
                 continue
             
+            (dir, base) = posixpath.split(filename)
+            filename = posixpath.join(self.realpath(dir), base)
+            
             if filename in self.paths:
                 if member.isdir():
                     continue
@@ -353,7 +359,7 @@ class PackagesFs(Filesystem):
     
     def open(self, path):
         try:
-            file = self.paths[path]
+            file = self.paths[self.realpath(path)]
         except LookupError:
             return OsFilesystem.open(self, path)
         
@@ -363,11 +369,14 @@ class PackagesFs(Filesystem):
         return file
     
     def exists(self, path):
-        if path in self.paths:
+        if self.realpath(path) in self.paths:
             return True
         return exists(b"/" + path)
     
     def readlink(self, path):
+        # Not bothering to call realpath() on the parent directory because
+        # this is only called by realpath() itself which has already expanded
+        # the directory
         try:
             file = self.paths[path]
         except LookupError:
@@ -376,15 +385,16 @@ class PackagesFs(Filesystem):
         member = file["member"]
         if not member.issym():
             raise ErrnoError(EINVAL, path)
-        return member.linkname
+        return fsencode(member.linkname)
     
     def listdir(self, path):
-        pkg_dir = self.paths.get(path)
+        realpath = self.realpath(path)
+        pkg_dir = self.paths.get(realpath)
         if pkg_dir and not pkg_dir["member"].isdir():
             raise ErrnoError(ENOTDIR, path)
         
         res = list()
-        prefix = path + b"/"
+        prefix = realpath + b"/"
         for entry in self.paths.keys():
             try:
                 entry = strip(entry, prefix)
@@ -404,7 +414,7 @@ class PackagesFs(Filesystem):
     
     def owner(self, path):
         try:
-            file = self.paths[path]
+            file = self.paths[self.realpath(path)]
         except LookupError:
             stderr.write(":: ")
             stderr.flush()
@@ -417,7 +427,7 @@ class PackagesFs(Filesystem):
     
     def stat(self, path):
         try:
-            file = self.paths[path]
+            file = self.paths[self.realpath(path)]
         except LookupError:
             return stat(b"/" + path)
         else:
