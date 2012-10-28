@@ -359,7 +359,7 @@ class PackagesFs(Filesystem):
         
         file = file["tar"].extractfile(file["member"])
         if not file:
-            raise ErrNoError(EINVAL, path)
+            raise ErrnoError(EINVAL, path)
         return file
     
     def exists(self, path):
@@ -381,7 +381,7 @@ class PackagesFs(Filesystem):
     def listdir(self, path):
         pkg_dir = self.paths.get(path)
         if pkg_dir and not pkg_dir["member"].isdir():
-            raise ErrNoError(ENOTDIR, path)
+            raise ErrnoError(ENOTDIR, path)
         
         res = list()
         prefix = path + b"/"
@@ -550,7 +550,7 @@ class command_pipe(Popen):
 def command_trace(args):
     print("+", " ".join(fsdecode(arg) for arg in args), file=stderr)
 
-def ErrNoError(errno, *args, **kw):
+def ErrnoError(errno, *args, **kw):
     return EnvironmentError(errno, strerror(errno), *args, **kw)
 
 def strip_root(path):
