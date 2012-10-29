@@ -43,7 +43,17 @@ class Deps(object):
             for dirs in self.dynamic.rpath:
                 dirs = self.dynamic.read_str(dirs)
                 for dir in dirs.split(b":"):
-                    yield dir.lstrip(b"/")
+                    # $ORIGIN substitution in DT_RPATH string seen in Libre
+                    # Office 3.6.2's libmozbootstrap.so file. The Gnu "ldd"
+                    # command seems to respect it, despite the ELF spec-
+                    # ification saying $ORIGIN only applies to the DT_NEEDED
+                    # and RUNPATH entries.
+                    try:
+                        dir = self.sub_origin(dir)
+                    except ValueError:
+                        pass
+                    else:
+                        yield dir.lstrip(b"/")
         
         if not self.privileged:
             try:
