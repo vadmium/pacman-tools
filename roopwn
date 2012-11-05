@@ -1,5 +1,7 @@
 #! /usr/bin/env python3
 
+'''"roopwn": "Running out of Pacman wrapper names"'''
+
 from sys import argv
 from subprocess import (check_call, Popen, CalledProcessError)
 import subprocess
