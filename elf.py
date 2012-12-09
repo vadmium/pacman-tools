@@ -462,9 +462,6 @@ class BaseHash(Mapping):
         self.stream = elf.stream
         self.symtab = symtab
         self.stream.seek(offset)
-    
-    def __getitem__(self, name):
-        raise NotImplementedError()
 
 class Hash(BaseHash):
     def __init__(self, elf, *pos, **kw):
@@ -473,16 +470,37 @@ class Hash(BaseHash):
         self.header = Struct('Hash table header',
             self.Elf_word('nbucket'), self.Elf_word('nchain'))
         self.header = struct_parse(self.header, self.stream)
-        #~ self.offset = self.elf.file.tell()
+        self.buckets = self.stream.tell()
+        self.chain = self.buckets + self.header['nbucket'] * 4
     
     def __len__(self):
-        return self.header['nchain']
+        return self.header['nchain'] - 1
     
     def __iter__(self):
-        for _ in range(self.header['nbucket'] + self.header['nchain']):
+        end = self.chain + self.header['nchain'] * 4
+        for offset in range(self.buckets, end, 4):
+            self.stream.seek(offset)
             sym = struct_parse(self.Elf_word(None), self.stream)
             if sym:
                 yield self.symtab[sym]
+    
+    def __getitem__(self, name):
+        hash = 0
+        for c in name:
+            hash = (hash << 4) + c
+            hash = (hash ^ hash >> 24 & 0xF0) & bitmask(28)
+        
+        self.stream.seek(self.buckets + hash % self.header['nbucket'] * 4)
+        while True:
+            index = struct_parse(self.Elf_word(None), self.stream)
+            if not index:
+                raise KeyError(name)
+            
+            sym = self.symtab[index]
+            if sym.name == name:
+                return sym
+            
+            self.stream.seek(self.chain + index * 4)
 
 # Mostly based on https://blogs.oracle.com/ali/entry/gnu_hash_elf_sections
 class GnuHash(BaseHash):
