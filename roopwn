@@ -73,7 +73,7 @@ def main():
                 "-n", "--nosave", "-s", "-u", "--unneeded",
             ):
                 xaction_args.append(opt)
-            elif opt == "--dryrun":
+            elif opt in ("--dryrun", "--dry-run"):
                 dryrun = True
             elif opt == "--nofiledeps":
                 filedeps = False
