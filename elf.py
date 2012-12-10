@@ -336,33 +336,46 @@ class Dynamic(object):
         return StringTable(self.elf.stream, strtab, strsz)
     
     def rel_entries(self):
-        for (table, size, entsize, Struct) in (
-            (self.RELA, self.RELASZ, self.RELAENT,
-                self.elf.structs.Elf_Rela),
-            (self.REL, self.RELSZ, self.RELENT, self.elf.structs.Elf_Rel),
+        for (type, size) in (
+            (self.RELA, self.RELASZ),
+            (self.REL, self.RELSZ),
         ):
-            entries = self.entries[table]
-            if not entries:
-                continue
-            
-            (table,) = entries
-            (size,) = self.entries[size]
-            size = size['d_val']
-            (entsize,) = self.entries[entsize]
-            entsize = entsize['d_val']
-            table = self.segments.map(table['d_ptr'], size)
-            
-            if entsize < Struct.sizeof():
-                raise NotImplementedError("{Struct.name} entry size "
-                    "too small: {entsize}".format(**locals()))
-            if size % entsize:
-                raise NotImplementedError(
-                    "{Struct.name} table size: {size}".format(**locals()))
-            
-            for offset in range(table, table + size, entsize):
-                self.elf.stream.seek(offset)
-                entry = struct_parse(Struct, self.elf.stream)
-                yield Relocation(entry, self.elf)
+            entries = self.entries[type]
+            if entries:
+                yield from self.rel_table_entries(entries, size, type)
+        
+        entries = self.entries[self.JMPREL]
+        if entries:
+            (pltrel,) = self.entries[self.PLTREL]
+            pltrel = pltrel['d_val']
+            yield from self.rel_table_entries(entries, self.PLTRELSZ, pltrel)
+    
+    def rel_table_entries(self, entries, size, type):
+        (entsize, Struct) = {
+            self.RELA: (self.RELAENT, self.elf.structs.Elf_Rela),
+            self.REL: (self.RELENT, self.elf.structs.Elf_Rel),
+        }[type]
+        
+        (table,) = entries
+        (size,) = self.entries[size]
+        size = size['d_val']
+        (entsize,) = self.entries[entsize]
+        entsize = entsize['d_val']
+        table = self.segments.map(table['d_ptr'], size)
+        
+        if entsize < Struct.sizeof():
+            raise NotImplementedError("{Struct.name} entry size "
+                "too small: {entsize}".format(**locals()))
+        if size % entsize:
+            raise NotImplementedError(
+                "{Struct.name} table size: {size}".format(**locals()))
+        
+        # TODO: mmap
+        # TODO: read rel table in one go
+        for offset in range(table, table + size, entsize):
+            self.elf.stream.seek(offset)
+            entry = struct_parse(Struct, self.elf.stream)
+            yield Relocation(entry, self.elf)
     
     def symbol_table(self):
         (symtab,) = self.entries[self.SYMTAB]
@@ -382,6 +395,7 @@ class Dynamic(object):
         return dict()
     
     NEEDED = 1
+    PLTRELSZ = 2
     HASH = 4
     STRTAB = 5
     SYMTAB = 6
@@ -395,6 +409,8 @@ class Dynamic(object):
     REL = 17
     RELSZ = 18
     RELENT = 19
+    PLTREL = 20
+    JMPREL = 23
     RUNPATH = 29
     
     GNU_HASH = 0x6FFFFEF5
