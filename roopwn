@@ -165,7 +165,7 @@ Options passed to Pacman:
             (pkg, _) = pkg_parse(pkg)
             pkg_names.append(pkg)
     
-    anal = Analyser(pacman, allsymbols, symboldeps)
+    anal = Analyser(pacman, allsymbols, symboldeps, verbose=verbose)
     with ExitStack() as cleanup:
         print("analysing file dependencies...", file=stderr)
         
@@ -262,9 +262,10 @@ Options passed to Pacman:
         anal.write_db()
 
 class Analyser(object):
-    def __init__(self, pacman, allsymbols, symboldeps):
+    def __init__(self, pacman, allsymbols, symboldeps, verbose):
         self.allsymbols = allsymbols
         self.symboldeps = symboldeps
+        self.verbose = verbose
         
         # A set of dependent ("client") files for each independent
         # ("supplier") file. Some dependent files may no longer actually
@@ -294,6 +295,9 @@ class Analyser(object):
         for interp in deps.interps():
             if self.fs.exists(interp):
                 self.deps[interp].add(filename)
+                if self.verbose:
+                    print("{}: interp -> {}".format(
+                        fsdecode(filename), fsdecode(interp)), file=stderr)
             else:
                 print("{}: {}: interp not found".format(
                     fsdecode(filename), fsdecode(interp)), file=stderr)
@@ -322,13 +326,31 @@ class Analyser(object):
             
             self.deps[found].add(filename)
             needed_paths.append(found)
+            if self.verbose:
+                if found == needed["raw_name"]:
+                    print("{}: needed -> {}".format(
+                        fsdecode(filename), fsdecode(found)), file=stderr)
+                else:
+                    print("{}: needed {} -> {}".format(fsdecode(filename),
+                        fsdecode(needed["raw_name"]), fsdecode(found)),
+                        file=stderr)
         
         if needed_missing:
             self.fail = True
             return False
         
-        if not self.symboldeps or not self.allsymbols and file["e_type"] != "ET_EXEC":
+        if not self.symboldeps:
             return not fail
+        if self.allsymbols:
+            if self.verbose:
+                print("{}: checking symbols".format(fsdecode(filename)),
+                    file=stderr)
+        else:
+            if self.verbose:
+                print("{}: {}".format(fsdecode(filename), file["e_type"]),
+                    file=stderr)
+            if file["e_type"] != "ET_EXEC":
+                return not fail
         
         with ExitStack() as context:
             symtab = dynamic.symbol_table()
