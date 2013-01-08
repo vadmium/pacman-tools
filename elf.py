@@ -88,9 +88,18 @@ def matches(elf, header):
     )):
         return False
     
-    # ELFOSABI_SYSV is zero
-    return (ident_a['EI_OSABI'] == 'ELFOSABI_SYSV' or
-        ident_a['EI_OSABI'] == ident_b['EI_OSABI'])
+    abi_a = ident_a['EI_OSABI']
+    abi_b = ident_b['EI_OSABI']
+    
+    # Treating Linux aka GNU ABI as System V aka "none". Most ELF files have
+    # "none", but require "libc" which has GNU, but "libc" has "ld-linux-x86-
+    # 64.so.2" listed as "needed", which has the "none" ABI again.
+    if abi_a == 'ELFOSABI_LINUX':
+        abi_a = 'ELFOSABI_SYSV'
+    if abi_b == 'ELFOSABI_LINUX':
+        abi_b = 'ELFOSABI_SYSV'
+    
+    return abi_a == abi_b
     
     SHN_UNDEF = 0
     SHN_XINDEX = 0xFFFF
