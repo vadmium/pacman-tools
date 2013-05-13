@@ -7,7 +7,7 @@ from subprocess import (check_call, Popen, CalledProcessError)
 import subprocess
 from sys import stderr
 from posixpath import basename
-from os import path
+import os
 import tarfile
 from os import (fsdecode, fsencode)
 from stat import (S_IXUSR, S_IXGRP, S_IXOTH)
@@ -143,7 +143,7 @@ Options passed to Pacman:
         trace=verbose) as proc:
             for pkg in proc.stdout:
                 (pkg,) = pkg.splitlines()
-                pkg_files.append(path.join(CACHEDIR, basename(pkg)))
+                pkg_files.append(os.path.join(CACHEDIR, basename(pkg)))
         
         if not pkg_files:
             return
@@ -209,12 +209,12 @@ Options passed to Pacman:
             
             if filedeps:
                 def on_needed(deps, needed):
-                    (dir, so) = path.split(needed["name"])
+                    (dir, so) = os.path.split(needed["name"])
                     try:
                         so = so.rsplit(b".so.", 1)[-2]
                     except IndexError:
                         return
-                    so = path.join(dir, so + b".so")
+                    so = os.path.join(dir, so + b".so")
                     if needed["search"]:
                         for match in deps.search_lib(so, anal.cache):
                             anal.fs.owner(match)
@@ -568,7 +568,7 @@ def decompress(file, ext, dir):
     else:
         ext = "." + ext
     
-    decomp_file = path.join(dir, decomp_file + ext)
+    decomp_file = os.path.join(dir, decomp_file + ext)
     
     with type["comp"](file) as src:
         with open(decomp_file, "wb") as dest:
