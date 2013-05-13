@@ -193,13 +193,13 @@ Options passed to Pacman:
         
         # Get list of files which may be removed
         recheck = set()
-        realpath = OsFilesystem().realpath
+        realdir = partial(PackagesFs.realdir, OsFilesystem())
         proc = [pacman] + "--query --list --quiet --".split() + pkg_names
         with command_pipe(proc, stdout=subprocess.PIPE,
         stderr=command_pipe.NULL, check=False, trace=verbose) as proc:
             for file in proc.stdout:
                 (file,) = file.splitlines()
-                file = realpath(strip_root(file))
+                file = realdir(strip_root(file))
                 anal.fs.removed.add(file)
                 recheck.update(anal.deps.pop(file, ()))
         
@@ -295,6 +295,7 @@ class Analyser(object):
         
         for interp in deps.interps():
             if self.fs.exists(interp):
+                interp = self.fs.realdir(interp)
                 self.deps[interp].add(filename)
                 if self.verbose:
                     print("{}: interp -> {}".format(
@@ -325,6 +326,7 @@ class Analyser(object):
                 needed_missing = True
                 continue
             
+            found = self.fs.realdir(found)
             self.deps[found].add(filename)
             needed_paths.append(found)
             if self.verbose:
@@ -433,9 +435,7 @@ class PackagesFs(Filesystem):
             filename = strip_root(fsencode(member.name))
             if filename.startswith(b"."):
                 continue
-            
-            (dir, base) = posixpath.split(filename)
-            filename = posixpath.join(self.realpath(dir), base)
+            filename = self.realdir(filename)
             
             if filename in self.paths:
                 if member.isdir():
@@ -450,6 +450,10 @@ class PackagesFs(Filesystem):
             self.paths[filename] = dict(pkg=pkg, tar=tar, member=member)
         
         return success
+    
+    def realdir(self, path):
+        (dir, base) = posixpath.split(path)
+        return posixpath.join(self.realpath(dir), base)
     
     def lookup(self, path):
         file = self.paths.get(path)
