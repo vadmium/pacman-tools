@@ -200,6 +200,7 @@ Options passed to Pacman:
             for file in proc.stdout:
                 (file,) = file.splitlines()
                 file = realpath(strip_root(file))
+                anal.fs.removed.add(file)
                 recheck.update(anal.deps.pop(file, ()))
         
         if not remove:
@@ -423,6 +424,7 @@ class Analyser(object):
 class PackagesFs(Filesystem):
     def __init__(self, pacman):
         self.pacman = pacman
+        self.removed = set()
         self.paths = dict()
     
     def add(self, pkg, tar):
@@ -449,12 +451,17 @@ class PackagesFs(Filesystem):
         
         return success
     
+    def lookup(self, path):
+        file = self.paths.get(path)
+        if not file and path in self.removed:
+            raise OSError(ENOENT, "File removed", path)
+        return file
+    
     # TODO: expand links in parent directories before looking up tar file members
     
     def open(self, path):
-        try:
-            file = self.paths[self.realpath(path)]
-        except LookupError:
+        file = self.lookup(self.realpath(path))
+        if not file:
             return OsFilesystem.open(self, path)
         
         file = file["tar"].extractfile(file["member"])
@@ -463,17 +470,19 @@ class PackagesFs(Filesystem):
         return file
     
     def exists(self, path):
-        if self.realpath(path) in self.paths:
+        realpath = self.realpath(path)
+        if realpath in self.paths:
             return True
+        if realpath in self.removed:
+            return False
         return exists(b"/" + path)
     
     def readlink(self, path):
         # Not bothering to call realpath() on the parent directory because
         # this is only called by realpath() itself which has already expanded
         # the directory
-        try:
-            file = self.paths[path]
-        except LookupError:
+        file = self.lookup(path)
+        if not file:
             return OsFilesystem.readlink(self, path)
         
         member = file["member"]
@@ -483,7 +492,7 @@ class PackagesFs(Filesystem):
     
     def listdir(self, path):
         realpath = self.realpath(path)
-        pkg_dir = self.paths.get(realpath)
+        pkg_dir = self.lookup(realpath)
         if pkg_dir and not pkg_dir["member"].isdir():
             raise ErrnoError(ENOTDIR, path)
         
@@ -507,9 +516,8 @@ class PackagesFs(Filesystem):
         return res
     
     def owner(self, path):
-        try:
-            file = self.paths[self.realpath(path)]
-        except LookupError:
+        file = self.lookup(self.realpath(path))
+        if not file:
             stderr.write(":: ")
             stderr.flush()
             command([self.pacman] + "--query --owns --".split() +
@@ -520,9 +528,8 @@ class PackagesFs(Filesystem):
                 fsdecode(path), fsdecode(pkg), fsdecode(ver)), file=stderr)
     
     def stat(self, path):
-        try:
-            file = self.paths[self.realpath(path)]
-        except LookupError:
+        file = self.lookup(self.realpath(path))
+        if not file:
             return stat(b"/" + path)
         else:
             return SimpleNamespace(st_mode=file["member"].mode)
