@@ -273,6 +273,8 @@ class Analyser(object):
         # exist or be dependent, because they are not delisted when their
         # package is touched.
         self.deps = defaultdict(set)
+        
+        self.broken = defaultdict(set)  # Broken dependencies to ignore
         self.read_db()
         
         self.fs = PackagesFs(pacman)
@@ -293,6 +295,9 @@ class Analyser(object):
         except (ELFError, LookupError):
             return
         
+        known_broken = self.broken[filename]
+        now_broken = list()
+        
         for interp in deps.interps():
             if self.fs.exists(interp):
                 interp = self.fs.realdir(interp)
@@ -301,9 +306,12 @@ class Analyser(object):
                     print("{}: interp -> {}".format(
                         fsdecode(filename), fsdecode(interp)), file=stderr)
             else:
-                print("{}: {}: interp not found".format(
-                    fsdecode(filename), fsdecode(interp)), file=stderr)
-                fail = True
+                dep = (b"interp", interp)
+                now_broken.append(dep)
+                if dep not in known_broken:
+                    print("{}: {}: interp not found".format(
+                        fsdecode(filename), fsdecode(interp)), file=stderr)
+                    fail = True
         
         needed_paths = list()
         needed_missing = False
@@ -317,12 +325,15 @@ class Analyser(object):
                     found = None
             
             if found is None:
-                print("{}: {}: needed not found".format(
-                    fsdecode(filename), fsdecode(needed["raw_name"])),
-                    file=stderr)
-                if on_needed:
-                    on_needed(deps, needed)
-                fail = True
+                dep = (b"needed", needed["raw_name"])
+                now_broken.append(dep)
+                if dep not in known_broken:
+                    print("{}: {}: needed not found".format(
+                        fsdecode(filename), fsdecode(needed["raw_name"])),
+                        file=stderr)
+                    if on_needed:
+                        on_needed(deps, needed)
+                    fail = True
                 needed_missing = True
                 continue
             
@@ -338,11 +349,11 @@ class Analyser(object):
                         fsdecode(needed["raw_name"]), fsdecode(found)),
                         file=stderr)
         
-        if needed_missing:
-            self.fail = True
-            return False
+        known_broken.clear()
+        known_broken.update(now_broken)
         
-        if not self.symboldeps:
+        if needed_missing or not self.symboldeps:
+            self.fail |= fail
             return not fail
         if self.allsymbols:
             if self.verbose:
@@ -397,12 +408,11 @@ class Analyser(object):
                         file=stderr)
                     fail |= self.symboldeps
         
-        if fail:
-            self.fail = True
+        self.fail |= fail
         return not fail
     
     def read_db(self):
-        with open(self.DEP_DB, "rb") as db:
+        with open(os.path.join(self.DB_DIR, self.DEP_DB), "rb") as db:
             for line in db:
                 line = strip(line, end=b"\n")
                 try:
@@ -412,16 +422,39 @@ class Analyser(object):
                     deps = self.deps[indep]
                 else:
                     deps.add(dep)
+        
+        with open(os.path.join(self.DB_DIR, self.BROKEN_DB), "rb") as db:
+            for line in db:
+                line = strip(line, end=b"\n")
+                try:
+                    line = strip(line, b"  ")
+                except ValueError:
+                    broken = self.broken[strip(line, end=b":")]
+                else:
+                    broken.add(tuple(line.split(b":")))
     
     def write_db(self):
-        with open(self.DEP_DB, "wb") as db:
+        os.makedirs(self.DB_DIR, exist_ok=True)
+        
+        with open(os.path.join(self.DB_DIR, self.DEP_DB), "wb") as db:
             for (indep, deps) in sorted(self.deps.items(), key=itemgetter(0)):
                 db.writelines((indep, b":"))
                 for dep in deps:
                     db.writelines((b"\n  ", dep))
                 db.write(b"\n")
+        
+        with open(os.path.join(self.DB_DIR, self.BROKEN_DB), "wb") as db:
+            for (filename, broken) in self.broken.items():
+                if not broken:
+                    continue
+                db.writelines((filename, b":"))
+                for dep in broken:
+                    db.writelines((b"\n  ", b":".join(dep)))
+                db.write(b"\n")
     
-    DEP_DB = "/var/lib/roopwn-deps"
+    DB_DIR = "/var/lib/roopwn"
+    DEP_DB = "deps"
+    BROKEN_DB = "broken"
 
 class PackagesFs(Filesystem):
     def __init__(self, pacman):
