@@ -308,10 +308,11 @@ class Analyser(object):
             else:
                 dep = (b"interp", interp)
                 now_broken.append(dep)
-                if dep not in known_broken:
+                unknown = dep not in known_broken
+                if unknown or self.vebose:
                     print("{}: {}: interp not found".format(
                         fsdecode(filename), fsdecode(interp)), file=stderr)
-                    fail = True
+                fail |= unknown
         
         needed_paths = list()
         needed_missing = False
@@ -327,10 +328,12 @@ class Analyser(object):
             if found is None:
                 dep = (b"needed", needed["raw_name"])
                 now_broken.append(dep)
-                if dep not in known_broken:
+                unknown = dep not in known_broken
+                if unknown or self.verbose:
                     print("{}: {}: needed not found".format(
                         fsdecode(filename), fsdecode(needed["raw_name"])),
                         file=stderr)
+                if unknown:
                     if on_needed:
                         on_needed(deps, needed)
                     fail = True
