@@ -1,0 +1,104 @@
+#! /usr/bin/env python3
+
+import subprocess
+from io import StringIO, BytesIO, TextIOWrapper, IOBase
+import tarfile
+from time import time
+from os import fsdecode
+from stat import S_IRUSR, S_IWUSR, S_IXUSR
+from stat import S_IRGRP, S_IXGRP, S_IROTH, S_IXOTH
+from hashlib import sha256
+
+def main(p="PKGBUILD"):
+    (aurinfo, _) = getaurinfo(p).communicate()
+    pkg = parseaurinfo(aurinfo)
+    with AurTar(pkg[b"pkgname"], pkg[b"pkgver"]) as aurtar:
+        aurtar.addfile(".AURINFO", BytesIO(aurinfo), size=len(aurinfo))
+        
+        with open(p, "rb", buffering=0) as file:
+            tarinfo = aurtar.tar.gettarinfo(fileobj=file)
+            aurtar.addfile("PKGBUILD", file, tarinfo=tarinfo,
+                uid=0, uname="", gid=0, gname="")
+
+class AurTar:
+    def __init__(self, pkgname, pkgver):
+        self.pkgname = fsdecode(pkgname)
+        name = "{}-{}.src.tar.gz".format(self.pkgname, fsdecode(pkgver))
+        self.tar = tarfile.open(name, "w:gz")
+        self.mtime = time()
+        self.sums = TextIOWrapper(BytesIO())
+        
+        tarinfo = tarfile.TarInfo(self.pkgname)
+        tarinfo.mtime = self.mtime
+        tarinfo.type = tarfile.DIRTYPE
+        tarinfo.mode = (S_IRUSR | S_IWUSR | S_IXUSR |
+            S_IRGRP | S_IXGRP |  S_IROTH | S_IXOTH)
+        self.tar.addfile(tarinfo)
+    
+    def __enter__(self):
+        self.tar.__enter__()
+        return self
+    
+    def __exit__(self, type, exc, tb):
+        if not exc:
+            name = "{}/SHA256SUMS.asc".format(self.pkgname)
+            tarinfo = tarfile.TarInfo(name)
+            tarinfo.mtime = self.mtime
+            
+            with subprocess.Popen(("gpg", "--clearsign"),
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE) as gpg:
+                (sig, _) = gpg.communicate(self.sums.detach().getvalue())
+            tarinfo.size = len(sig)
+            self.tar.addfile(tarinfo, BytesIO(sig))
+        
+        return self.tar.__exit__(type, exc, tb)
+    
+    def addfile(self, name, fileobj, *, tarinfo=None, **attrs):
+        if not tarinfo:
+            tarinfo = tarfile.TarInfo()
+            tarinfo.mtime = self.mtime  # Default value
+        name = fsdecode(name)
+        tarinfo.name = "{}/{}".format(self.pkgname, name)
+        for (key, value) in attrs.items():
+            setattr(tarinfo, key, value)
+        hash = sha256()
+        self.tar.addfile(tarinfo, HashingReader(fileobj, hash))
+        print("{}  {}".format(hash.hexdigest(), name), file=self.sums)
+
+class HashingReader(IOBase):
+    def __init__(self, file, hash):
+        self.file = file
+        self.hash = hash
+    
+    def read(self, *pos, **kw):
+        data = self.file.read(*pos, **kw)
+        self.hash.update(data)
+        return data
+
+def parseaurinfo(aurinfo):
+    parsed = dict()
+    for line in aurinfo.splitlines():
+        (name, value) = line.split(b" = ", 1)
+        if name in {b"pkgname", b"epoch", b"pkgver", b"pkgrel"}:
+            parsed.setdefault(name, value)
+    return parsed
+
+def getaurinfo(pkgbuild):
+    script = StringIO()
+    print(r'''. "$1"''', file=script)
+    line = r"""${{{pacman}+printf '{aur} = %s\n' "${{{pacman}[@]}}"}}"""
+    for name in ("pkgname", "pkgdesc", "url", "license"):
+        print(line.format(pacman=name, aur=name), file=script)
+    print(r"""${pkgver+printf 'pkgver = %s\n'
+        "${epoch+$epoch:}$pkgver${pkgrel+-$pkgrel}"}""", file=script)
+    print(line.format(pacman="depends", aur="depend"), file=script)
+    
+    script = script.getvalue()
+    proc = ("bash", "-o", "errexit", "-o", "nounset", "-c", script,
+        "--", pkgbuild)
+    return subprocess.Popen(proc, stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE)
+
+if __name__ == "__main__":
+    from funcparams import command
+    command()
