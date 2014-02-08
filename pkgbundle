@@ -5,9 +5,11 @@
 
 # Requirements:
 # tar,sed,grep,comm,sort,uniq,mktemp,sh
+# xz-utils: Needed for xz packages,
+#     along with a version of "tar" that automatically recognises them
+#     (Gnu "tar" 1.20 doesn't; version 1.26 does)
 # Optional:
 # wget: online
-# xz-utils: xz packages
 # uname: architecture default detection
 # cpio: building bundle
 # sudo: installing root filesystem alternative
@@ -164,7 +166,8 @@ usage() {
 cat << USAGE
 Options:
 fs <dir>
-${TAB}Default: ./stage, deleted when finished
+${TAB}Target file system to install to. Default: ./stage, deleted when
+${TAB}finished
 bundle <cpio.gz>
 fs-axx <command>
 ${TAB}Default: "fakeroot --" if staged
@@ -172,16 +175,18 @@ fs-sudo${TAB}Access target filesystem with "$SUDO"
 repo <url>
 ${TAB}Multiple repositories separated by whitespace or provided in multiple
 ${TAB}arguments. Repositories are additional to those from pacman.conf.
-${TAB}Suggested:
-${TAB}http://mirrors.kernel.org/archlinux/<repo>/os/\$arch/<repo>.db for
-${TAB}<repo> in core,extra,community
-config${TAB}Default: /etc/pacman.conf
+${TAB}Example:
+${TAB}http://mirrors.kernel.org/archlinux/core/os/\$arch/core.db
+${TAB}The \$arch variable will be substituted automatically.
+config${TAB}Default: /etc/pacman.conf in host file system. (Target not used
+${TAB}by default.)
 cache-axx <command>
 ${TAB}Default: nothing
 cache-sudo
 ${TAB}Access package database and cache sudo "$SUDO"
 install <package>,<package>,. . .
-${TAB}Recommended: base
+${TAB}Install packages and dependencies from specified repositories.
+${TAB}Example: base
 build <PKGBUILD>,<PKGBUILD>
 ${TAB}PKGBUILD or directory containing one
 arch <arch>
