@@ -514,12 +514,12 @@ stage() {
             n="$((n + 1))"
             echo "$n/$NPKGS Unpacking $line" >&2
             tar xf "$line" --force-local --same-owner --same-permissions \
-                -C "$FS" -k --exclude .CHANGELOG
+                -C "$FS" -k
             pkgname="$(sed -n 's/^pkgname = //p' -- "$FS/.PKGINFO")"
-            rm -- "$FS/.PKGINFO"
             if test -e "$FS/.INSTALL"; then
                 mv -- "$FS/.INSTALL" "$INSTALL/$pkgname"
             fi
+            rm -- "$FS"/.[A-Z]*
         done
         
         if test -n "$BUNDLE"; then
