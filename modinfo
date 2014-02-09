@@ -48,8 +48,8 @@ def main(*modules, **kw):
                     else:
                         break
                 else:
-                    raise SystemExit(
-                        "modinfo: could not find module {0}".format(name))
+                    msg = "modinfo: could not find module {0}".format(name)
+                    raise SystemExit(msg)
             
             if isabs(filename):
                 name = transplant(filename, new=basedir)
@@ -75,8 +75,8 @@ def main(*modules, **kw):
                     except LookupError:
                         i = len(params)
                         param_indexes[param_name] = i
-                        params.append(Record(dict.fromkeys(PARAM_TAGS),
-                            name=param_name))
+                        param = dict.fromkeys(PARAM_TAGS)
+                        params.append(Record(param, name=param_name))
                     setattr(params[i], tag, param_info)
                     break
                 
@@ -88,8 +88,8 @@ def main(*modules, **kw):
                     try:
                         (tag, eq) = info.split("=", 1)
                     except ValueError:
-                        print('{0}: Missing "=" separator in ".modinfo" tag'.
-                            format(name), file=stderr)
+                        msg = '{0}: Missing "=" separator in ".modinfo" tag'
+                        print(msg.format(name), file=stderr)
                         continue
                     
                     print("{0:16}{1}".format(tag + ":", eq), end=sep)
@@ -101,8 +101,8 @@ def main(*modules, **kw):
                     info = param.parm
                 else:
                     info = "{parm} ({parmtype})".format(**param.__dict__)
-                print("{0:16}{1}:{2}".format("parm:", param.name, info),
-                    end=sep)
+                line = "{0:16}{1}:{2}".format("parm:", param.name, info)
+                print(line, end=sep)
 main.arg_opts = ("b", "k")
 
 from lib import run_main

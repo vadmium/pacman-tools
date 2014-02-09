@@ -138,8 +138,8 @@ def depmod(basedir, kver):
                 except LookupError:
                     continue
                 
-                #~ print('{0} needs "{1}": {2}'.format(mod.pathname, name,
-                    #~ owner.pathname))
+                #~ msg = '{0} needs "{1}": {2}'
+                #~ print(msg.format(mod.pathname, name, owner.pathname))
                 mod.deps.add(owner)
     print("{0}/{0}".format(len(tlist)))
     
@@ -170,8 +170,9 @@ def depmod(basedir, kver):
                         dfs_steps.pop()
                     else:
                         if node in ancestors:
-                            print("{0}: Ignoring cyclic dependency of {1} "
-                                "on {2}".format(mod.pathname,
+                            msg = ("{0}: Ignoring cyclic dependency of {1} "
+                                "on {2}")
+                            print(msg.format(mod.pathname,
                                 current.mod.pathname, dep.pathname))
                             continue
                         if node in visited:
@@ -353,8 +354,8 @@ def underscores(string):
             i = string.index(b"]", i) + 1
             continue
         if c == b"]":
-            print("{0}: unexpected closing square bracket".format(
-                string.decode()))
+            msg = "{0}: unexpected closing square bracket"
+            print(msg.format(string.decode()))
         
         if c == b"-":
             c = b"_"

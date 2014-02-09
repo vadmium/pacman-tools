@@ -141,8 +141,8 @@ def matches(elf, header):
             sym = bytearray()
             while True:
                 if size <= 0:
-                    raise EOFError(
-                        "Unterminated string in {0}".format(secname))
+                    msg = "Unterminated string in {0}".format(secname)
+                    raise EOFError(msg)
                 size -= 1
                 
                 c = ord(self.file.read(1))
@@ -205,8 +205,8 @@ def matches(elf, header):
         entsize = format.size
         
         if size % entsize:
-            raise NotImplementedError(
-                '".symtab" section size: {0}'.format(size))
+            msg = '".symtab" section size: {0}'.format(size)
+            raise NotImplementedError(msg)
         
         for offset in range(0, size, entsize * self.SYMTAB_BUFFER):
             self.file.seek(start + offset)
@@ -291,8 +291,8 @@ class Segments(Sequence):
                 # Region is contained completely within this segment
                 new = start - seg['p_vaddr'] + seg['p_offset']
                 if found is not None and found != new:
-                    raise ValueError("Inconsistent mapping for memory "
-                        "address 0x{0:X}".format(start))
+                    msg = "Inconsistent mapping for memory address 0x{0:X}"
+                    raise ValueError(msg.format(start))
                 found = new
         
         if found is None:
@@ -319,8 +319,8 @@ class Dynamic(object):
     def add(self, stream, size):
         entsize = self.Elf_Dyn.sizeof()
         if size % entsize:
-            raise NotImplementedError(
-                'Dynamic section size: {0}'.format(size))
+            msg = 'Dynamic section size: {0}'.format(size)
+            raise NotImplementedError(msg)
         
         for _ in range(size // entsize):
             entry = struct_parse(self.Elf_Dyn, stream)
@@ -372,11 +372,11 @@ class Dynamic(object):
         table = self.segments.map(table,size)#['d_ptr'], size)
         
         if entsize < Struct.sizeof():
-            raise NotImplementedError("{Struct.name} entry size "
-                "too small: {entsize}".format(**locals()))
+            msg = "{Struct.name} entry size too small: {entsize}"
+            raise NotImplementedError(msg.format(**locals()))
         if size % entsize:
-            raise NotImplementedError(
-                "{Struct.name} table size: {size}".format(**locals()))
+            msg = "{Struct.name} table size: {size}"
+            raise NotImplementedError(msg.format(**locals()))
         
         # TODO: mmap
         # TODO: read rel table in one go
@@ -436,8 +436,8 @@ class SymbolTable(object):
         
         self.Elf_Sym = elf.structs.Elf_Sym
         if self.entsize < self.Elf_Sym.sizeof():
-            raise NotImplementedError("Symbol entry size too small: "
-                "{self.entsize}".format(**locals()))
+            msg = "Symbol entry size too small: {self.entsize}"
+            raise NotImplementedError(msg.format(**locals()))
     
     def __getitem__(self, sym):
         """Get Symbol() object for given table index"""

@@ -76,9 +76,8 @@ def get_mkinitcpio():
     except ImportError:
         from urllib2 import (urlopen, Request)
     
-    req = Request(
-        "https://projects.archlinux.org/{0}.git/plain/{0}?id=0.7.2".
-        format(MKINITCPIO))
+    url = "https://projects.archlinux.org/{0}.git/plain/{0}?id=0.7.2"
+    req = Request(url.format(MKINITCPIO))
     with open(MKINITCPIO, "wb") as file:
         stat = fstat(file.fileno())
         size = stat.st_size
@@ -100,19 +99,20 @@ def get_mkinitcpio():
                 if total is None:
                     print(MKINITCPIO, file=sys.stderr)
                 else:
-                    print("{0} {1}: {2}".format(
-                        MKINITCPIO, UNIT, int(total)), file=sys.stderr)
+                    msg = "{0} {1}: {2}".format(MKINITCPIO, UNIT, int(total))
+                    print(msg, file=sys.stderr)
             else:
                 print(CONTENT_RANGE, range, file=sys.stderr)
                 if not range.startswith(UNIT):
-                    raise ValueError(
-                        "{0} not in {1}".format(CONTENT_RANGE, UNIT))
+                    msg = "{0} not in {1}".format(CONTENT_RANGE, UNIT)
+                    raise ValueError(msg)
                 range = range[len(UNIT):].lstrip()
                 (range, _, total) = range.partition("/")
                 (start, _, _) = range.partition("-")
                 file.seek(start)
-                print("{0} {1}: {2}+/{3}".format(
-                    MKINITCPIO, UNITS, start, total), file=sys.stderr)
+                msg = "{0} {1}: {2}+/{3}"
+                print(msg.format(MKINITCPIO, UNITS, start, total),
+                    file=sys.stderr)
             
             copyfileobj(url, file)
         file.truncate()
@@ -125,21 +125,20 @@ def preset_kver(basedir, preset):
         preset = os.path.join(basedir, "etc/mkinitcpio.d",
             preset + ".preset")
     
+    script = """
+        BASEDIR="$2"
+        . source-transplant.sh
+        . "$1"
+        printf '%s' "$ALL_kver"
+    """
+    cmd = "bash -o errexit -o nounset -c".split() + [
+        script, "kver", preset, basedir]
     print("bash", preset)
     try:
-        kver = check_output(
-            "bash -o errexit -o nounset -c".split() + ["""
-                    BASEDIR="$2"
-                    . source-transplant.sh
-                    . "$1"
-                    printf '%s' "$ALL_kver"
-                """, "kver", preset, basedir],
-            bufsize=-1,
-            close_fds=True,
-        )
+        kver = check_output(cmd, bufsize=-1, close_fds=True)
     except CalledProcessError as e:
-        raise SystemExit(
-            "Bash failed with exit status {0}".format(e.returncode))
+        msg = "Bash failed with exit status {0}"
+        raise SystemExit(msg.format(e.returncode))
     print("kver", kver)
     
     if isabs(kver):
@@ -149,18 +148,18 @@ def preset_kver(basedir, preset):
         print("extract version", vmlinuz)
         with open(vmlinuz, "rb") as file:
             if random_read(file, 514, 4) != b"HdrS":
-                raise ValueError(
-                    "Unrecognised Linux boot image: {0}".format(vmlinuz))
+                msg = "Unrecognised Linux boot image: {0}".format(vmlinuz)
+                raise ValueError(msg)
             
             (value,) = struct.unpack("<H", random_read(file, 510, 2))
             if value != 0xAA55:
-                raise ValueError(
-                    "Unrecognised Linux boot image: {0}".format(vmlinuz))
+                msg = "Unrecognised Linux boot image: {0}".format(vmlinuz)
+                raise ValueError(msg)
             
             (value,) = struct.unpack("<H", random_read(file, 518, 2))
             if value < 0x200:
-                raise ValueError(
-                    "Unrecognised Linux boot image: {0}".format(vmlinuz))
+                msg = "Unrecognised Linux boot image: {0}".format(vmlinuz)
+                raise ValueError(msg)
             
             (offset,) = struct.unpack("<H", random_read(file, 526, 2))
             file.seek(0x200 + offset)
@@ -168,8 +167,8 @@ def preset_kver(basedir, preset):
             while True:
                 c = file.read(1)
                 if not c:
-                    raise ValueError(
-                        "Unterminated version string in {0}".format(vmlinuz))
+                    msg = "Unterminated version string in {0}"
+                    raise ValueError(msg.format(vmlinuz))
                 if c in "\0 ":
                     break
                 kver.append(c)
