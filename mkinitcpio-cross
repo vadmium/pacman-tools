@@ -135,7 +135,8 @@ def preset_kver(basedir, preset):
         script, "kver", preset, basedir]
     print("bash", preset)
     try:
-        kver = check_output(cmd, bufsize=-1, close_fds=True)
+        kver = check_output(cmd, bufsize=-1, close_fds=True,
+            universal_newlines=True)
     except CalledProcessError as e:
         msg = "Bash failed with exit status {0}"
         raise SystemExit(msg.format(e.returncode))
@@ -169,9 +170,9 @@ def preset_kver(basedir, preset):
                 if not c:
                     msg = "Unterminated version string in {0}"
                     raise ValueError(msg.format(vmlinuz))
-                if c in "\0 ":
+                if c in b"\0 ":
                     break
-                kver.append(c)
+                kver.extend(c)
         kver = kver.decode()
         print("kver", kver)
     

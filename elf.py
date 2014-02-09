@@ -141,7 +141,7 @@ def matches(elf, header):
             sym = bytearray()
             while True:
                 if size <= 0:
-                    msg = "Unterminated string in {0}".format(secname)
+                    msg = "Unterminated string in {0!r}".format(secname)
                     raise EOFError(msg)
                 size -= 1
                 
@@ -595,7 +595,7 @@ def main(elf, relocs=False, dyn_syms=False, lookup=()):
         segments = Segments(elf)
         for seg in segments:
             if seg["p_type"] == "PT_INTERP":
-                print("  PT_INTERP:", seg.get_interp_name())
+                print("  PT_INTERP:", repr(seg.get_interp_name()))
             else:
                 print("  {seg[p_type]}".format(**locals()))
         
@@ -615,7 +615,7 @@ def main(elf, relocs=False, dyn_syms=False, lookup=()):
             str = "NEEDED, RPATH, RUNPATH, SONAME".split(", ")
             if tag in (getattr(dynamic, name) for name in str):
                 for str in entries:
-                    print("    {0}".format(dynamic.strtab[str]))#["d_val"]]))
+                    print("    {0!r}".format(dynamic.strtab[str]))#["d_val"]]))
             
         if relocs:
             print("\nRelocation entries:")
@@ -661,7 +661,7 @@ def format_tag(tag, obj, names):
     return "0x{tag:X}{name}".format(**locals())
 
 def format_symbol(sym):
-    return ("{sym.name}: "
+    return ("{sym.name!r}: "
         "{sym.entry[st_info][bind]}, "
         "{sym.entry[st_info][type]}, "
         "{sym.entry[st_other][visibility]}, "

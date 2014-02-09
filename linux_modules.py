@@ -138,7 +138,7 @@ def depmod(basedir, kver):
                 except LookupError:
                     continue
                 
-                #~ msg = '{0} needs "{1}": {2}'
+                #~ msg = "{0} needs {1!r}: {2}"
                 #~ print(msg.format(mod.pathname, name, owner.pathname))
                 mod.deps.add(owner)
     print("{0}/{0}".format(len(tlist)))
@@ -219,7 +219,7 @@ def depmod(basedir, kver):
     for (name, owners) in symbol_owners.items():
         # Owners list should be ordered according to modules.order
         for owner in owners:
-            symbols_index.add(b"symbol:{0}".format(name),
+            symbols_index.add(b"symbol:" + name,
                 modname(owner.pathname), owner.order)
     symbols_index.write(dirname, "modules.symbols.bin")
 
@@ -304,8 +304,8 @@ class Index(object):
                 
                 if i < branch.end:
                     offset |= self.NODE_CHILDS
-                    first = keys[i][prefix_len]
-                    last = last[prefix_len]
+                    first = keys[i][prefix_len:prefix_len + 1]
+                    last = last[prefix_len:prefix_len + 1]
                     file.write(first)
                     file.write(last)
                     
@@ -348,7 +348,7 @@ def underscores(string):
     res = bytearray()
     i = 0
     while i < len(string):
-        c = string[i]
+        c = string[i:i + 1]
         
         if c == b"[":
             i = string.index(b"]", i) + 1
@@ -359,7 +359,7 @@ def underscores(string):
         
         if c == b"-":
             c = b"_"
-        res.append(c)
+        res.extend(c)
         i += 1
     
     return bytes(res)

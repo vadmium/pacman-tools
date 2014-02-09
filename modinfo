@@ -26,12 +26,13 @@ def main(*modules, **kw):
             with raw:
                 for line in file:
                     line = line.strip()
-                    if line.startswith("#"):
+                    if line.startswith(b"#"):
                         continue
                     try:
-                        (filename, deps) = line.split(":", 1)
+                        (filename, deps) = line.split(b":", 1)
                     except ValueError:
                         continue
+                    filename = os.fsdecode(filename)
                     candidate = basename(filename)
                     
                     if candidate.find(".") != len(name):
@@ -63,12 +64,13 @@ def main(*modules, **kw):
                 if not i:
                     print("{0:16}{1}".format("filename:", name), end=sep)
                 
+                info = os.fsdecode(info)
                 PARAM_TAGS = ("parm", "parmtype")
                 for tag in PARAM_TAGS:
-                    if not info.startswith(tag.encode() + b"="):
+                    if not info.startswith(tag + "="):
                         continue
                     param = info[len(tag) + 1:]
-                    (param_name, param_info) = param.split(b":", 1)
+                    (param_name, param_info) = param.split(":", 1)
                     
                     try:
                         i = param_indexes[param_name]
