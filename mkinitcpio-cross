@@ -17,7 +17,6 @@ import os
 import subprocess
 import struct
 from os.path import isabs
-from lib import strip
 from linux_modules import depmod
 
 try:

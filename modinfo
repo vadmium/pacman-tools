@@ -7,7 +7,6 @@ from os.path import isabs
 from lib import transplant
 from linux_modules import (MODULE_DIR, gzopen, open_elf)
 from sys import stderr
-from lib import strip
 from lib import Record
 
 # This is based on "modinfo" from "module-init-tools" (apparently GPL 2)
@@ -66,11 +65,10 @@ def main(*modules, **kw):
                 
                 PARAM_TAGS = ("parm", "parmtype")
                 for tag in PARAM_TAGS:
-                    try:
-                        param = strip(info, tag.encode() + b"=")
-                        (param_name, param_info) = param.split(b":", 1)
-                    except ValueError:
+                    if not info.startswith(tag.encode() + b"="):
                         continue
+                    param = info[len(tag) + 1:]
+                    (param_name, param_info) = param.split(b":", 1)
                     
                     try:
                         i = param_indexes[param_name]

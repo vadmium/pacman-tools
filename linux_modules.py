@@ -11,7 +11,6 @@ import struct
 from os.path import commonprefix
 from os.path import basename
 from lib import Record
-from lib import strip
 
 MODULE_DIR = "lib/modules"
 
@@ -89,10 +88,12 @@ def depmod(basedir, kver):
                 
                 for sym in file.symtab_entries(syms):
                     name = file.read_str(strings, sym.name)
-                    try:
-                        name = strip(name, b"__mod_", b"_device_table")
-                    except ValueError:
+                    prefix = b"__mod_"
+                    suffix = b"_device_table"
+                    if (not name.startswith(prefix) or
+                    not name.endswith(suffix)):
                         continue
+                    name = name[len(prefix):-len(suffix)]
                     if name not in tables or tables[name] is not None:
                         continue
                     
@@ -125,9 +126,9 @@ def depmod(basedir, kver):
                     continue
                 
                 name = file.read_str(strings, sym.name)
-                try:
-                    lookup = strip(name, b".")
-                except ValueError:
+                if name.startswith(b"."):
+                    lookup = name[1:]
+                else:
                     lookup = name
                 
                 try:
@@ -204,10 +205,10 @@ def depmod(basedir, kver):
                 alias_index.add(underscores(alias), name, mod.order)
             
             for p in file.get_strings(b".modinfo"):
-                try:
-                    alias = strip(p, b"alias=")
-                except ValueError:
+                prefix = b"alias="
+                if not p.startswith(prefix):
                     continue
+                alias = p[len(prefix):]
                 alias_index.add(underscores(alias), name, mod.order)
     print("{0}/{0}".format(len(tlist)))
     alias_index.write(dirname, "modules.alias.bin")
@@ -229,8 +230,9 @@ def verify_version(version):
     if major < 2:
         raise ValueError("Required at least Linux version 2")
     
-    minor = strip(minor, ".")
-    (sub, minor) = slice_int(minor)
+    if not minor.startswith("."):
+        raise ValueError('Linux version 2 missing ".minor" part')
+    (sub, minor) = slice_int(minor[1:])
     if sub > 5:
         return
     if sub < 5:
