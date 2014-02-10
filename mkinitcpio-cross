@@ -1,4 +1,4 @@
-#! /usr/bin/env python2
+#! /usr/bin/env python3
 """
 Arch Linux mkinitcpio command without using chroot to allow for cross-
 installation of 64-bit OS from 32-bit-only environment.
@@ -7,7 +7,6 @@ Requirements:
 
 bash: parse mkinitcpio preset file
 """
-from __future__ import print_function
 
 import sys
 from os import (
@@ -19,25 +18,9 @@ import subprocess
 import struct
 from os.path import isabs
 from linux_modules import depmod
+from subprocess import check_output, CalledProcessError
 
-try:
-    from subprocess import (check_output, CalledProcessError)
-except ImportError:
-    def check_output(proc_args, *popen_args, **kw):
-        proc = subprocess.Popen(proc_args, *popen_args,
-            stdout=subprocess.PIPE, **kw)
-        (output, _) = proc.communicate()
-        if proc.returncode:
-            raise EnvironmentError("Command {0} failed with exit status {1}".
-                format(proc_args[0], proc.returncode))
-        return output
-
-def main(basedir, preset, *args, **kw):
-    skip_depmod = kw.pop("skip_depmod", False)
-    if kw:
-        raise TypeError("Unexpected keyword arguments: {0}".format(
-            ", ".join(kw.keys())))
-
+def main(basedir, preset, *args, skip_depmod=False):
     get_mkinitcpio()
     
     # The "depmod" files installed with the Linux package a refer to module
@@ -84,7 +67,7 @@ def get_mkinitcpio():
         size = stat.st_size
         UNIT = "bytes"
         if size:
-            req.add_header("Range", "{0}={1}-".format(UNIT, size))
+            req.add_header("Range", "{}={}-".format(UNIT, size))
             print("Continuing", req.get_full_url(), file=sys.stderr)
         else:
             print("Downloading", req.get_full_url(), file=sys.stderr)
@@ -100,18 +83,18 @@ def get_mkinitcpio():
                 if total is None:
                     print(MKINITCPIO, file=sys.stderr)
                 else:
-                    msg = "{0} {1}: {2}".format(MKINITCPIO, UNIT, int(total))
+                    msg = "{} {}: {}".format(MKINITCPIO, UNIT, int(total))
                     print(msg, file=sys.stderr)
             else:
                 print(CONTENT_RANGE, range, file=sys.stderr)
                 if not range.startswith(UNIT):
-                    msg = "{0} not in {1}".format(CONTENT_RANGE, UNIT)
+                    msg = "{} not in {}".format(CONTENT_RANGE, UNIT)
                     raise ValueError(msg)
                 range = range[len(UNIT):].lstrip()
                 (range, _, total) = range.partition("/")
                 (start, _, _) = range.partition("-")
                 file.seek(start)
-                msg = "{0} {1}: {2}+/{3}"
+                msg = "{} {}: {}+/{}"
                 print(msg.format(MKINITCPIO, UNITS, start, total),
                     file=sys.stderr)
             
@@ -139,7 +122,7 @@ def preset_kver(basedir, preset):
         kver = check_output(cmd, bufsize=-1, close_fds=True,
             universal_newlines=True)
     except CalledProcessError as e:
-        msg = "Bash failed with exit status {0}"
+        msg = "Bash failed with exit status {}"
         raise SystemExit(msg.format(e.returncode))
     print("kver", kver)
     
@@ -150,17 +133,17 @@ def preset_kver(basedir, preset):
         print("extract version", vmlinuz)
         with open(vmlinuz, "rb") as file:
             if random_read(file, 514, 4) != b"HdrS":
-                msg = "Unrecognised Linux boot image: {0}".format(vmlinuz)
+                msg = "Unrecognised Linux boot image: {}".format(vmlinuz)
                 raise ValueError(msg)
             
             (value,) = struct.unpack("<H", random_read(file, 510, 2))
             if value != 0xAA55:
-                msg = "Unrecognised Linux boot image: {0}".format(vmlinuz)
+                msg = "Unrecognised Linux boot image: {}".format(vmlinuz)
                 raise ValueError(msg)
             
             (value,) = struct.unpack("<H", random_read(file, 518, 2))
             if value < 0x200:
-                msg = "Unrecognised Linux boot image: {0}".format(vmlinuz)
+                msg = "Unrecognised Linux boot image: {}".format(vmlinuz)
                 raise ValueError(msg)
             
             (offset,) = struct.unpack("<H", random_read(file, 526, 2))
@@ -169,7 +152,7 @@ def preset_kver(basedir, preset):
             while True:
                 c = file.read(1)
                 if not c:
-                    msg = "Unterminated version string in {0}"
+                    msg = "Unterminated version string in {}"
                     raise ValueError(msg.format(vmlinuz))
                 if c in b"\0 ":
                     break

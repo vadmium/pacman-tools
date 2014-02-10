@@ -13,7 +13,7 @@ def main():
     exes = argv[2:]
     for exe in exes:
         if len(exes) != 1:
-            print("{0}:".format(exe))
+            print("{}:".format(exe))
         ElfResolve(root, exe)
 
 class ElfResolve:
@@ -28,7 +28,7 @@ class ElfResolve:
                 if seg.type == self.elf.PT_INTERP:
                     if interp not in self.depends:
                         self.depends.add(interp)
-                        print("\t{0} (0x0)".format(interp))
+                        print("\t{} (0x0)".format(interp))
                     
                     interp = transplant(interp, new=self.root)
                     if interp not in exe_seen:
@@ -60,12 +60,12 @@ class ElfResolve:
     def parse_dynamic(self, seg):
                 for path in self.search_paths():
                 else:
-                    print("\t{0} => not found".format(raw_needed))
+                    print("\t{} => not found".format(raw_needed))
                     continue
             
             if needed not in self.depends:
                 self.depends.add(needed)
-                print("\t{0} => {1} (0x0)".format(raw_needed, needed))
+                print("\t{} => {} (0x0)".format(raw_needed, needed))
             if needed not in self.needed_seen:
                 self.needed_queue.append(needed)
                 self.needed_seen.add(needed)

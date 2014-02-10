@@ -94,7 +94,7 @@ class Deps(object):
             return str
         if self.privileged:
             raise ValueError("$ORIGIN substitution used "
-                "for privileged executable: {0}".format(str.decode()))
+                "for privileged executable: {}".format(str.decode()))
         
         frags0 = str.split(subs[0])
         frags1 = []

@@ -16,7 +16,7 @@ def main(*modules, **kw):
     basedir = kw.pop("b")
     sep = "\x00" if kw.pop("0", False) else "\n"
     if kw:
-        raise TypeError("Unexpected keyword arguments: {0}".format(
+        raise TypeError("Unexpected keyword arguments: {}".format(
             ", ".join(kw.keys())))
     
     for name in modules:
@@ -49,7 +49,7 @@ def main(*modules, **kw):
                     else:
                         break
                 else:
-                    msg = "modinfo: could not find module {0}".format(name)
+                    msg = "modinfo: could not find module {}".format(name)
                     raise SystemExit(msg)
             
             if isabs(filename):
@@ -62,7 +62,7 @@ def main(*modules, **kw):
         with open_elf(name) as module:
             for (i, info) in enumerate(module.get_strings(b".modinfo")):
                 if not i:
-                    print("{0:16}{1}".format("filename:", name), end=sep)
+                    print("{:16}{}".format("filename:", name), end=sep)
                 
                 info = os.fsdecode(info)
                 PARAM_TAGS = ("parm", "parmtype")
@@ -90,11 +90,11 @@ def main(*modules, **kw):
                     try:
                         (tag, eq) = info.split("=", 1)
                     except ValueError:
-                        msg = '{0}: Missing "=" separator in ".modinfo" tag'
+                        msg = '{}: Missing "=" separator in ".modinfo" tag'
                         print(msg.format(name), file=stderr)
                         continue
                     
-                    print("{0:16}{1}".format(tag + ":", eq), end=sep)
+                    print("{:16}{}".format(tag + ":", eq), end=sep)
             
             for param in params:
                 if param.parm is None:
@@ -102,8 +102,8 @@ def main(*modules, **kw):
                 elif param.parmtype is None:
                     info = param.parm
                 else:
-                    info = "{parm} ({parmtype})".format(**param.__dict__)
-                line = "{0:16}{1}:{2}".format("parm:", param.name, info)
+                    info = "{parm} ({parmtype})".format_map(vars(param))
+                line = "{:16}{}:{}".format("parm:", param.name, info)
                 print(line, end=sep)
 main.arg_opts = ("b", "k")
 

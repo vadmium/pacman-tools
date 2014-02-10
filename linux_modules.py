@@ -1,11 +1,11 @@
-#! /usr/bin/env python2
-from __future__ import print_function
+#! /usr/bin/env python3
 
 from io import BytesIO
 import elf
 from gzip import GzipFile
 import os
-from lib import (transplant, SEEK_CUR)
+from lib import transplant
+from io import SEEK_CUR
 from collections import defaultdict
 import struct
 from os.path import commonprefix
@@ -66,14 +66,14 @@ def depmod(basedir, kver):
                 except LookupError:
                     continue
                 
-                mod.order = linenum
+                mod["order"] = linenum
                 tlist.append(mod)
     tlist.extend(module_paths.values())
     
     print("Reading symbols from modules")
     symbol_owners = defaultdict(list)
     for (i, mod) in enumerate(tlist):
-        print("{0}/{1}".format(i, len(tlist)), end="\r")
+        print("{}/{}".format(i, len(tlist)), end="\r")
         with mod.elf as file:
             for sym in file.get_strings(b"__ksymtab_strings"):
                 symbol_owners[sym].append(mod)
@@ -110,13 +110,13 @@ def depmod(basedir, kver):
     
     print("Reading dependencies of modules")
     for (i, mod) in enumerate(tlist):
-        print("{0}/{1}".format(i, len(tlist)), end="\r")
+        print("{}/{}".format(i, len(tlist)), end="\r")
         mod.deps = set()
         with mod.elf as file:
             strings = file.get_section(b".strtab")
             syms = file.get_section(b".symtab")
             if strings is None or syms is None:
-                print('{0}: no ".strtab" or ".symtab"'.format(mod.pathname))
+                print('{}: no ".strtab" or ".symtab"'.format(mod.pathname))
                 continue
             
             sparc = file.machine in (file.EM_SPARC, file.EM_SPARCV9)
@@ -138,7 +138,7 @@ def depmod(basedir, kver):
                 except LookupError:
                     continue
                 
-                #~ msg = "{0} needs {1!r}: {2}"
+                #~ msg = "{} needs {!r}: {}"
                 #~ print(msg.format(mod.pathname, name, owner.pathname))
                 mod.deps.add(owner)
     print("{0}/{0}".format(len(tlist)))
@@ -170,8 +170,8 @@ def depmod(basedir, kver):
                         dfs_steps.pop()
                     else:
                         if node in ancestors:
-                            msg = ("{0}: Ignoring cyclic dependency of {1} "
-                                "on {2}")
+                            msg = ("{}: Ignoring cyclic dependency of {} "
+                                "on {}")
                             print(msg.format(mod.pathname,
                                 current.node.pathname, node.pathname))
                             continue
@@ -198,7 +198,7 @@ def depmod(basedir, kver):
     print('Generating "modules.alias.bin"')
     alias_index = Index()
     for (i, mod) in enumerate(tlist):
-        print("{0}/{1}".format(i, len(tlist)), end="\r")
+        print("{}/{}".format(i, len(tlist)), end="\r")
         
         name = modname(mod.pathname)
         with mod.elf as file:
@@ -319,7 +319,7 @@ class Index(object):
                     for ci in range(1, 1 + span):
                         ch = ch_end - ci
                         end = ki
-                        while ki > i and ord(keys[ki - 1][prefix_len]) == ch:
+                        while ki > i and keys[ki - 1][prefix_len] == ch:
                             ki -= 1
                         if ki >= end:
                             continue
@@ -354,7 +354,7 @@ def underscores(string):
             i = string.index(b"]", i) + 1
             continue
         if c == b"]":
-            msg = "{0}: unexpected closing square bracket"
+            msg = "{}: unexpected closing square bracket"
             print(msg.format(string.decode()))
         
         if c == b"-":

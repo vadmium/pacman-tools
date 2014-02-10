@@ -1,8 +1,8 @@
-#! /usr/bin/env python
+#! /usr/bin/env python3
 
 """
 Features:
-* Python 3, also potential Python 2.6 support
+* Python 3 support
 * Usable with Python file objects, rather than requiring a file descriptor or
     entire file buffered in memory (as in "elffile")
 * Parsing of dynamic section, including entries tagged "needed" (not in
@@ -13,7 +13,7 @@ Reference: https://www.sco.com/developers/gabi/latest/contents.html
 
 from collections import namedtuple
 from elftools.construct import (Struct, Union)
-from misc import SEEK_CUR
+from io import SEEK_CUR
 from collections import defaultdict
 from collections import (Sequence, Mapping)
 from shorthand import bitmask
@@ -141,7 +141,7 @@ def matches(elf, header):
             sym = bytearray()
             while True:
                 if size <= 0:
-                    msg = "Unterminated string in {0!r}".format(secname)
+                    msg = "Unterminated string in {!r}".format(secname)
                     raise EOFError(msg)
                 size -= 1
                 
@@ -172,8 +172,7 @@ def matches(elf, header):
             chunk = self.file.read(chunk)
             if not chunk:
                 if offset is not None:
-                    raise EOFError("Unterminated string at {0}".format(
-                        start))
+                    raise EOFError("Unterminated string at {}".format(start))
                 else:
                     break
             if size is not None:
@@ -205,7 +204,7 @@ def matches(elf, header):
         entsize = format.size
         
         if size % entsize:
-            msg = '".symtab" section size: {0}'.format(size)
+            msg = '".symtab" section size: {}'.format(size)
             raise NotImplementedError(msg)
         
         for offset in range(0, size, entsize * self.SYMTAB_BUFFER):
@@ -291,12 +290,12 @@ class Segments(Sequence):
                 # Region is contained completely within this segment
                 new = start - seg['p_vaddr'] + seg['p_offset']
                 if found is not None and found != new:
-                    msg = "Inconsistent mapping for memory address 0x{0:X}"
+                    msg = "Inconsistent mapping for memory address 0x{:X}"
                     raise ValueError(msg.format(start))
                 found = new
         
         if found is None:
-            raise LookupError("No segment found for 0x{0:X}".format(start))
+            raise LookupError("No segment found for 0x{:X}".format(start))
         return found
 
 class Dynamic(object):
@@ -319,7 +318,7 @@ class Dynamic(object):
     def add(self, stream, size):
         entsize = self.Elf_Dyn.sizeof()
         if size % entsize:
-            msg = 'Dynamic section size: {0}'.format(size)
+            msg = 'Dynamic section size: {}'.format(size)
             raise NotImplementedError(msg)
         
         for _ in range(size // entsize):
@@ -587,9 +586,9 @@ def main(elf, relocs=False, dyn_syms=False, lookup=()):
         
         print("Header:")
         for attr in ("EI_CLASS", "EI_DATA", "EI_OSABI", "EI_ABIVERSION"):
-            print("  {0}: {1}".format(attr, elf["e_ident"][attr]))
+            print("  {}: {}".format(attr, elf["e_ident"][attr]))
         for attr in ("e_type", "e_machine", "e_version", "e_flags"):
-            print("  {0}: {1}".format(attr, elf[attr]))
+            print("  {}: {}".format(attr, elf[attr]))
         
         print("\nSegments (program headers):")
         segments = Segments(elf)
@@ -610,12 +609,12 @@ def main(elf, relocs=False, dyn_syms=False, lookup=()):
                 "NEEDED, RPATH, RUNPATH, SONAME, "
                 "REL, RELA, HASH, GNU_HASH"
             )
-            print("  Tag {0} ({1})".format(out, len(entries)))
+            print("  Tag {} ({})".format(out, len(entries)))
             
             str = "NEEDED, RPATH, RUNPATH, SONAME".split(", ")
             if tag in (getattr(dynamic, name) for name in str):
                 for str in entries:
-                    print("    {0!r}".format(dynamic.strtab[str]))#["d_val"]]))
+                    print("    {!r}".format(dynamic.strtab[str]))#["d_val"]]))
             
         if relocs:
             print("\nRelocation entries:")
@@ -625,7 +624,7 @@ def main(elf, relocs=False, dyn_syms=False, lookup=()):
                 found = True
                 if rel["r_info_sym"]:
                     sym = symtab[rel["r_info_sym"]]
-                    print("  {0}".format(format_symbol(sym)))
+                    print("  {}".format(format_symbol(sym)))
                 else:
                     print("  Sym UNDEF")
             if not found:
@@ -636,7 +635,7 @@ def main(elf, relocs=False, dyn_syms=False, lookup=()):
             symtab = dynamic.symbol_table()
             hash = dynamic.symbol_hash(symtab)
             for sym in hash:
-                print("  {0}".format(format_symbol(sym)))
+                print("  {}".format(format_symbol(sym)))
         
         if lookup:
             print("\nSymbol lookup results:")
@@ -648,7 +647,7 @@ def main(elf, relocs=False, dyn_syms=False, lookup=()):
             except LookupError:
                 print("  Symbol not found:", name)
             else:
-                print("  {0}".format(format_symbol(sym)))
+                print("  {}".format(format_symbol(sym)))
 
 def format_tag(tag, obj, names):
     names = dict((getattr(obj, name), name) for name in names.split(", "))
