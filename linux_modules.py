@@ -10,7 +10,6 @@ from collections import defaultdict
 import struct
 from os.path import commonprefix
 from os.path import basename
-from lib import Record
 
 MODULE_DIR = "lib/modules"
 
@@ -25,8 +24,6 @@ def depmod(basedir, kver):
         modules.symbols.bin
     """
     
-    INDEX_PRIORITY_MIN = ~(~0 << 32)
-    
     verify_version(kver)
     
     dirname = os.path.join(basedir, MODULE_DIR, kver)
@@ -40,11 +37,7 @@ def depmod(basedir, kver):
             
             fullpath = os.path.join(dirpath, f)
             pathname = os.path.relpath(fullpath, dirname)
-            module_files.setdefault(f, Record(
-                elf=open_elf(fullpath),
-                pathname=pathname,
-                order=INDEX_PRIORITY_MIN),
-            )
+            module_files.setdefault(f, Module(open_elf(fullpath), pathname))
         
         i = 0
         while i < len(dirnames):
@@ -111,7 +104,6 @@ def depmod(basedir, kver):
     print("Reading dependencies of modules")
     for (i, mod) in enumerate(tlist):
         print("{}/{}".format(i, len(tlist)), end="\r")
-        mod.deps = set()
         with mod.elf as file:
             strings = file.get_section(b".strtab")
             syms = file.get_section(b".symtab")
@@ -154,16 +146,16 @@ def depmod(basedir, kver):
             
             node = mod
             while True:
-                dfs_steps.append(Record(
+                dfs_steps.append(dict(
                     node=node, queue=iter(node.deps)))
                 ancestors.add(node)
                 
                 while dfs_steps:
                     current = dfs_steps[-1]
                     try:
-                        node = next(current.queue)
+                        node = next(current["queue"])
                     except StopIteration:
-                        node = current.node
+                        node = current["node"]
                         ancestors.remove(node)
                         visited.add(node)
                         postorder.append(node)
@@ -173,7 +165,7 @@ def depmod(basedir, kver):
                             msg = ("{}: Ignoring cyclic dependency of {} "
                                 "on {}")
                             print(msg.format(mod.pathname,
-                                current.node.pathname, node.pathname))
+                                current["node"].pathname, node.pathname))
                             continue
                         if node in visited:
                             continue
@@ -224,6 +216,16 @@ def depmod(basedir, kver):
     symbols_index.write(dirname, "modules.symbols.bin")
 
 # Part of GPL 2 "depmod" port
+class Module:
+    def __init__(self, elf, pathname):
+        self.elf = elf
+        self.pathname = pathname
+        self.order = self.INDEX_PRIORITY_MIN
+        self.deps = set()
+    
+    INDEX_PRIORITY_MIN = ~(~0 << 32)
+
+# Part of GPL 2 "depmod" port
 def verify_version(version):
     (major, minor) = slice_int(version)
     if major > 2:
@@ -266,7 +268,7 @@ class Index(object):
     def add(self, key, value, priority):
         """Order added must correspond with priority (typically modules.order
         file)"""
-        self.index[key].append(Record(value=value, priority=priority))
+        self.index[key].append(dict(value=value, priority=priority))
     
     def write(self, dirname, filename):
         with open(os.path.join(dirname, filename), "wb") as file:
@@ -274,7 +276,7 @@ class Index(object):
             if not self.index:
                 self.index = {b"": None}
             keys = sorted(self.index.keys())
-            branches = [Record(
+            branches = [dict(
                 prefix=0,
                 end=len(keys),
                 fixup=file.tell(),
@@ -285,13 +287,13 @@ class Index(object):
             while branches:
                 branch = branches.pop()
                 first = keys[i]
-                last = keys[branch.end - 1]
+                last = keys[branch["end"] - 1]
                 node = self.index[first]
                 offset = file.tell()
                 
                 prefix = commonprefix(
-                    (first[branch.prefix:], last[branch.prefix:]))
-                prefix_len = branch.prefix + len(prefix)
+                    (first[branch["prefix"]:], last[branch["prefix"]:]))
+                prefix_len = branch["prefix"] + len(prefix)
                 if len(first) == prefix_len:
                     i += 1
                 else:
@@ -302,7 +304,7 @@ class Index(object):
                     file.write(prefix)
                     file.write(b"\x00")
                 
-                if i < branch.end:
+                if i < branch["end"]:
                     offset |= self.NODE_CHILDS
                     first = keys[i][prefix_len:prefix_len + 1]
                     last = last[prefix_len:prefix_len + 1]
@@ -315,7 +317,7 @@ class Index(object):
                     fixups = file.tell()
                     
                     # Branches list is in reverse, so add to it in reverse
-                    ki = branch.end
+                    ki = branch["end"]
                     for ci in range(1, 1 + span):
                         ch = ch_end - ci
                         end = ki
@@ -324,7 +326,7 @@ class Index(object):
                         if ki >= end:
                             continue
                         
-                        branches.append(Record(
+                        branches.append(dict(
                             prefix=prefix_len + 1,
                             end=end,
                             fixup = fixups - 4 * ci,
@@ -334,12 +336,12 @@ class Index(object):
                     offset |= self.NODE_VALUES
                     file.write(struct.pack("!L", len(node)))
                     for v in node:
-                        file.write(struct.pack("!L", v.priority))
-                        file.write(v.value)
+                        file.write(struct.pack("!L", v["priority"]))
+                        file.write(v["value"])
                         file.write(b"\x00")
                 
                 pos = file.tell()
-                file.seek(branch.fixup)
+                file.seek(branch["fixup"])
                 file.write(struct.pack("!L", offset))
                 file.seek(pos)
 

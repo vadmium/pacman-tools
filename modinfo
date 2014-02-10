@@ -7,7 +7,6 @@ from os.path import isabs
 from lib import transplant
 from linux_modules import (MODULE_DIR, gzopen, open_elf)
 from sys import stderr
-from lib import Record
 
 # This is based on "modinfo" from "module-init-tools" (apparently GPL 2)
 
@@ -78,8 +77,9 @@ def main(*modules, **kw):
                         i = len(params)
                         param_indexes[param_name] = i
                         param = dict.fromkeys(PARAM_TAGS)
-                        params.append(Record(param, name=param_name))
-                    setattr(params[i], tag, param_info)
+                        param.update(name=param_name)
+                        params.append(param)
+                    params[i][tag] = param_info
                     break
                 
                 else:
@@ -97,13 +97,13 @@ def main(*modules, **kw):
                     print("{:16}{}".format(tag + ":", eq), end=sep)
             
             for param in params:
-                if param.parm is None:
-                    info = param.parmtype
-                elif param.parmtype is None:
-                    info = param.parm
+                if param["parm"] is None:
+                    info = param["parmtype"]
+                elif param["parmtype"] is None:
+                    info = param["parm"]
                 else:
-                    info = "{parm} ({parmtype})".format_map(vars(param))
-                line = "{:16}{}:{}".format("parm:", param.name, info)
+                    info = "{parm} ({parmtype})".format_map(param)
+                line = "{:16}{}:{}".format("parm:", param["name"], info)
                 print(line, end=sep)
 main.arg_opts = ("b", "k")
 
