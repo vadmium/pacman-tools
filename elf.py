@@ -371,11 +371,11 @@ class Dynamic(object):
         table = self.segments.map(table,size)#['d_ptr'], size)
         
         if entsize < Struct.sizeof():
-            msg = "{Struct.name} entry size too small: {entsize}"
-            raise NotImplementedError(msg.format(**locals()))
+            msg = "{} entry size too small: {}"
+            raise NotImplementedError(msg.format(Struct.name, entsize))
         if size % entsize:
-            msg = "{Struct.name} table size: {size}"
-            raise NotImplementedError(msg.format(**locals()))
+            msg = "{} table size: {}"
+            raise NotImplementedError(msg.format(Struct.name, size))
         
         # TODO: mmap
         # TODO: read rel table in one go
@@ -435,8 +435,8 @@ class SymbolTable(object):
         
         self.Elf_Sym = elf.structs.Elf_Sym
         if self.entsize < self.Elf_Sym.sizeof():
-            msg = "Symbol entry size too small: {self.entsize}"
-            raise NotImplementedError(msg.format(**locals()))
+            msg = "Symbol entry size too small: {}"
+            raise NotImplementedError(msg.format(self.entsize))
     
     def __getitem__(self, sym):
         """Get Symbol() object for given table index"""
@@ -596,7 +596,7 @@ def main(elf, relocs=False, dyn_syms=False, lookup=()):
             if seg["p_type"] == "PT_INTERP":
                 print("  PT_INTERP:", repr(seg.get_interp_name()))
             else:
-                print("  {seg[p_type]}".format(**locals()))
+                print("  {}".format(seg["p_type"]))
         
         print("\nDynamic section entries:")
         dynamic = segments.read_dynamic()
@@ -656,15 +656,17 @@ def format_tag(tag, obj, names):
     except LookupError:
         name = ""
     else:
-        name = " ({name})".format(**locals())
-    return "0x{tag:X}{name}".format(**locals())
+        name = " ({})".format(name)
+    return "0x{:X}{}".format(tag, name)
 
 def format_symbol(sym):
-    return ("{sym.name!r}: "
-        "{sym.entry[st_info][bind]}, "
-        "{sym.entry[st_info][type]}, "
-        "{sym.entry[st_other][visibility]}, "
-        "shndx {sym.entry[st_shndx]}".format(**locals()))
+    return "{!r}: {}, {}, {}, shndx {}".format(
+        sym.name,
+        sym.entry["st_info"]["bind"],
+        sym.entry["st_info"]["type"],
+        sym.entry["st_other"]["visibility"],
+        sym.entry["st_shndx"],
+    )
 
 if __name__ == "__main__":
     from funcparams import command
