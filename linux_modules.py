@@ -4,7 +4,7 @@ from io import BytesIO
 import elf
 from gzip import GzipFile
 import os
-from lib import transplant
+import os.path
 from io import SEEK_CUR
 from collections import defaultdict
 import struct
@@ -39,7 +39,7 @@ def depmod(basedir, kver):
                 continue
             
             fullpath = os.path.join(dirpath, f)
-            pathname = transplant(fullpath, dirname)
+            pathname = os.path.relpath(fullpath, dirname)
             module_files.setdefault(f, Record(
                 elf=open_elf(fullpath),
                 pathname=pathname,
