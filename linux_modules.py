@@ -173,7 +173,7 @@ def depmod(basedir, kver):
                             msg = ("{0}: Ignoring cyclic dependency of {1} "
                                 "on {2}")
                             print(msg.format(mod.pathname,
-                                current.mod.pathname, dep.pathname))
+                                current.node.pathname, node.pathname))
                             continue
                         if node in visited:
                             continue
