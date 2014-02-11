@@ -35,7 +35,7 @@ class Deps(object):
     
     def needed(self):
         for entry in self.dynamic.needed:
-            entry = self.dynamic.strtab[entry]#['d_val']]
+            entry = self.dynamic.strtab[entry]
             name = self.sub_origin(entry)
             yield dict(search=b"/" not in name, name=name, raw_name=entry)
     
@@ -49,7 +49,7 @@ class Deps(object):
     def search_dirs(self, config_dirs):
         if not self.dynamic.runpath:
             for dirs in self.dynamic.rpath:
-                dirs = self.dynamic.strtab[dirs]#['d_val']]
+                dirs = self.dynamic.strtab[dirs]
                 for dir in dirs.split(b":"):
                     # $ORIGIN substitution in DT_RPATH string seen in Libre
                     # Office 3.6.2's libmozbootstrap.so file. The Gnu "ldd"
@@ -74,7 +74,7 @@ class Deps(object):
                         yield dir.lstrip(b"/")
         
         for dirs in self.dynamic.runpath:
-            dirs = self.dynamic.strtab[dirs]#['d_val']]
+            dirs = self.dynamic.strtab[dirs]
             for dir in dirs.split(b":"):
                 try:
                     dir = self.sub_origin(dir)

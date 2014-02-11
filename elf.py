@@ -5,8 +5,6 @@ Features:
 * Python 3 support
 * Usable with Python file objects, rather than requiring a file descriptor or
     entire file buffered in memory (as in "elffile")
-* Parsing of dynamic section, including entries tagged "needed" (not in
-    "pyelftools")
 
 Reference: https://www.sco.com/developers/gabi/latest/contents.html
 """
@@ -20,6 +18,7 @@ from shorthand import bitmask
 from elftools.common.utils import (struct_parse, parse_cstring_from_stream)
 from elftools.elf.sections import Symbol
 from elftools.elf.relocation import Relocation
+from elftools.elf.descriptions import describe_dyn_tag
 
 class Elf:
     EI_NIDENT = 16
@@ -256,12 +255,7 @@ class Segments(Sequence):
             if seg['p_type'] != 'PT_DYNAMIC':
                 continue
             
-            # Assume that the ".dynamic" _section_ is located at the start of
-            # the _segment_ identified by PT_DYNAMIC, otherwise you cannot
-            # find the _section_ (or the "_DYNAMIC" _symbol_ which labels it)
-            # from the program (segment) header alone.
-            self.elf.stream.seek(seg['p_offset'])
-            dynamic.add(self.elf.stream, seg['p_filesz'])
+            dynamic.add(seg)
         
         dynamic.strtab = dynamic.get_stringtable()
         return dynamic
@@ -294,74 +288,57 @@ class Dynamic(object):
         self.segments = segments
         self.elf = elf
         
-        self.Elf_Dyn = Struct('Elf_Dyn',
-            elf.structs.Elf_sxword('d_tag'),
-            #~ Union('d_un',
-            elf.structs.Elf_xword('d_un'),
-                #~ elf.structs.Elf_addr('d_ptr'),
-            #~ ),
-        )
-        
         self.entries = defaultdict(list)
         for (name, tag) in self.tag_attrs:
             setattr(self, name, self.entries[tag])
     
-    def add(self, stream, size):
-        entsize = self.Elf_Dyn.sizeof()
-        if size % entsize:
-            msg = 'Dynamic section size: {}'.format(size)
-            raise NotImplementedError(msg)
-        
-        for _ in range(size // entsize):
-            entry = struct_parse(self.Elf_Dyn, stream)
-            self.entries[entry['d_tag']].append(entry['d_un'])
+    def add(self, dyn):
+        for tag in dyn.iter_tags():
+            self.entries[tag.entry.d_tag].append(tag.entry.d_val)
     
     def get_stringtable(self):
         """Returns the StringTable object for the dynamic linking array"""
         
-        strtab = self.entries[self.STRTAB]
+        strtab = self.entries["DT_STRTAB"]
         if not strtab:
             raise LookupError(
                 "String table entry not found in dynamic linking array")
         
         (strtab,) = strtab
-        strsz = self.entries[self.STRSZ]
+        strsz = self.entries["DT_STRSZ"]
         if strsz:
             (strsz,) = strsz
-            #~ strsz = strsz['d_val']
         else:
             strsz = None
         
-        strtab = self.segments.map(strtab,strsz)#['d_ptr'], strsz)
+        strtab = self.segments.map(strtab, strsz)
         return StringTable(self.elf.stream, strtab, strsz)
     
     def rel_entries(self):
         for (type, size) in (
-            (self.RELA, self.RELASZ),
-            (self.REL, self.RELSZ),
+            ("DT_RELA", "DT_RELASZ"),
+            ("DT_REL", "DT_RELSZ"),
         ):
             entries = self.entries[type]
             if entries:
                 yield from self.rel_table_entries(entries, size, type)
         
-        entries = self.entries[self.JMPREL]
+        entries = self.entries["DT_JMPREL"]
         if entries:
-            (pltrel,) = self.entries[self.PLTREL]
-            #~ pltrel = pltrel['d_val']
-            yield from self.rel_table_entries(entries, self.PLTRELSZ, pltrel)
+            (pltrel,) = self.entries["DT_PLTREL"]
+            pltrel = describe_dyn_tag(pltrel)
+            yield from self.rel_table_entries(entries, "DT_PLTRELSZ", pltrel)
     
     def rel_table_entries(self, entries, size, type):
         (entsize, Struct) = {
-            self.RELA: (self.RELAENT, self.elf.structs.Elf_Rela),
-            self.REL: (self.RELENT, self.elf.structs.Elf_Rel),
+            "DT_RELA": ("DT_RELAENT", self.elf.structs.Elf_Rela),
+            "DT_REL": ("DT_RELENT", self.elf.structs.Elf_Rel),
         }[type]
         
         (table,) = entries
         (size,) = self.entries[size]
-        #~ size = size['d_val']
         (entsize,) = self.entries[entsize]
-        #~ entsize = entsize['d_val']
-        table = self.segments.map(table,size)#['d_ptr'], size)
+        table = self.segments.map(table, size)
         
         if entsize < Struct.sizeof():
             msg = "{} entry size too small: {}"
@@ -378,45 +355,25 @@ class Dynamic(object):
             yield Relocation(entry, self.elf)
     
     def symbol_table(self):
-        (symtab,) = self.entries[self.SYMTAB]
-        (syment,) = self.entries[self.SYMENT]
-        symtab = self.segments.map(symtab)#['d_ptr'])
-        return SymbolTable(self.elf.stream, symtab, syment,#['d_val'],
+        (symtab,) = self.entries["DT_SYMTAB"]
+        (syment,) = self.entries["DT_SYMENT"]
+        symtab = self.segments.map(symtab)
+        return SymbolTable(self.elf.stream, symtab, syment,
             self.elf, self.strtab)
     
     def symbol_hash(self, symtab):
-        for (tag, Class) in ((self.GNU_HASH, GnuHash), (self.HASH, Hash)):
+        for (tag, Class) in (("DT_GNU_HASH", GnuHash), ("DT_HASH", Hash)):
             hash = self.entries[tag]
             if not hash:
                 continue
             (hash,) = hash
-            hash = self.segments.map(hash)#['d_ptr'])
+            hash = self.segments.map(hash)
             return Class(self.elf, hash, symtab)
         return dict()
     
-    NEEDED = 1
-    PLTRELSZ = 2
-    HASH = 4
-    STRTAB = 5
-    SYMTAB = 6
-    RELA = 7
-    RELASZ = 8
-    RELAENT = 9
-    STRSZ = 10
-    SYMENT = 11
-    SONAME = 14
-    RPATH = 15
-    REL = 17
-    RELSZ = 18
-    RELENT = 19
-    PLTREL = 20
-    JMPREL = 23
-    RUNPATH = 29
-    
-    GNU_HASH = 0x6FFFFEF5
-    
     tag_attrs = dict(
-        rpath=RPATH, runpath=RUNPATH, soname=SONAME, needed=NEEDED,
+        rpath="DT_RPATH", runpath="DT_RUNPATH",
+        soname="DT_SONAME", needed="DT_NEEDED",
     ).items()
 
 class SymbolTable(object):
@@ -617,16 +574,12 @@ def dump_segments(elf, *, relocs, dyn_syms, lookup):
         if not entries:
             continue
         
-        out = format_tag(tag, dynamic,
-            "NEEDED, RPATH, RUNPATH, SONAME, "
-            "REL, RELA, HASH, GNU_HASH"
-        )
-        print("  Tag {} ({})".format(out, len(entries)))
+        print("  Tag {} ({})".format(tag, len(entries)))
         
-        str = "NEEDED, RPATH, RUNPATH, SONAME".split(", ")
-        if tag in (getattr(dynamic, name) for name in str):
+        strs = "DT_NEEDED, DT_RPATH, DT_RUNPATH, DT_SONAME"
+        if tag in strs.split(", "):
             for str in entries:
-                print("    {!r}".format(dynamic.strtab[str]))#["d_val"]]))
+                print("    {!r}".format(dynamic.strtab[str]))
     
     if relocs:
         print("\nRelocation entries:")
