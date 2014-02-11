@@ -4,6 +4,7 @@ Arch Linux mkinitcpio command without using chroot to allow for cross-
 installation of 64-bit OS from 32-bit-only environment.
 
 Requirements:
+
 bash: parse mkinitcpio preset file
 """
 from __future__ import print_function
@@ -178,9 +179,21 @@ def preset_kver(basedir, preset):
     
     return kver
 
+def splitdoc(doc):
+    return doc.split("\n\n", 1)
+
 def random_read(file, offset, size):
     file.seek(offset)
     return file.read(size)
 
-from lib import run_main
-run_main(__name__)
+if __name__ == "__main__":
+    from argparse import ArgumentParser
+    from inspect import getdoc
+    (summary, body) = splitdoc(getdoc(sys.modules[__name__]))
+    params = ArgumentParser(description=summary, epilog=body)
+    params.add_argument("basedir")
+    params.add_argument("-p", "--preset", required=True)
+    params.add_argument("args", nargs="*", default=[])
+    params.add_argument("--skip-depmod", action="store_true")
+    args = params.parse_args()
+    main(args.basedir, args.preset, *args.args, skip_depmod=args.skip_depmod)
