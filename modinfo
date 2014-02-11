@@ -7,6 +7,7 @@ from os.path import isabs
 from lib import transplant
 from linux_modules import (MODULE_DIR, gzopen, open_elf)
 from sys import stderr
+import elf
 
 # This is based on "modinfo" from "module-init-tools" (apparently GPL 2)
 
@@ -59,7 +60,8 @@ def main(*modules, **kw):
         params = list()
         param_indexes = dict()
         with open_elf(name) as module:
-            for (i, info) in enumerate(module.get_strings(b".modinfo")):
+            strings = elf.iter_strings(module, b".modinfo")
+            for (i, info) in enumerate(strings):
                 if not i:
                     print("{:16}{}".format("filename:", name), end=sep)
                 

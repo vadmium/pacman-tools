@@ -105,52 +105,42 @@ def matches(elf, header):
     
     SHT_NOBITS = 8
     
-    def get_section(self, name):
-        for i in range(1, self.shnum):
-            self.file.seek(self.shoff + self.shentsize * i)
-            (n, offset, size) = self.read("L 4xXX II")
-            if self.getname(n) != name:
-                continue
-            return (offset, size)
-        else:
-            return None
-    
     def getname(self, name):
         if self.secnames is None:
             return None
         else:
             return self.read_str(self.secnames, name)
+
+def iter_strings(elf, secname):
+    sec = elf.get_section_by_name(secname)
+    if sec is None:
+        return
     
-    def get_strings(self, secname):
-        sec = self.get_section(secname)
-        if sec is None:
-            return
-        
-        (start, size) = sec
-        self.file.seek(start)
-        while True:
-            while size:
-                peek = ord(self.file.read(1))
-                if peek:
-                    self.file.seek(-1, SEEK_CUR)
-                    break
-                size -= 1
-            if size <= 0:
+    elf.stream.seek(sec["sh_offset"])
+    size = sec["sh_size"]
+    while True:
+        while size:
+            peek = ord(elf.stream.read(1))
+            if peek:
+                elf.stream.seek(-1, SEEK_CUR)
                 break
+            size -= 1
+        if size <= 0:
+            break
+        
+        sym = bytearray()
+        while True:
+            if size <= 0:
+                msg = "Unterminated string in {!r}".format(secname)
+                raise EOFError(msg)
+            size -= 1
             
-            sym = bytearray()
-            while True:
-                if size <= 0:
-                    msg = "Unterminated string in {!r}".format(secname)
-                    raise EOFError(msg)
-                size -= 1
-                
-                c = ord(self.file.read(1))
-                if not c:
-                    break
-                sym.append(c)
-            
-            yield bytes(sym)
+            c = ord(elf.stream.read(1))
+            if not c:
+                break
+            sym.append(c)
+        
+        yield bytes(sym)
     
     def read_str(self, sect, offset=None):
         """If size is not given, or offset _is_ given, then string must be
@@ -245,7 +235,8 @@ def matches(elf, header):
     
     EM_SPARC = 2
     EM_SPARCV9 = 43
-    STT_SPARC_REGISTER = STT_LOPROC
+
+STT_SPARC_REGISTER = "STT_LOPROC"
 
 class Segments(Sequence):
     def __init__(self, elf):

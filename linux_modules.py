@@ -2,6 +2,7 @@
 
 from io import BytesIO
 import elf
+from elftools.elf.elffile import ELFFile
 from gzip import GzipFile
 import os
 import os.path
@@ -69,60 +70,53 @@ def depmod(basedir, kver):
     for (i, mod) in enumerate(tlist):
         print("{}/{}".format(i, len(tlist)), end="\r")
         with mod.elf as file:
-            for sym in file.get_strings(b"__ksymtab_strings"):
+            for sym in elf.iter_strings(file, b"__ksymtab_strings"):
                 symbol_owners[sym].append(mod)
             
-            strings = file.get_section(b".strtab")
-            syms = file.get_section(b".symtab")
+            strings = file.get_section_by_name(b".strtab")
+            syms = file.get_section_by_name(b".symtab")
             if strings is not None and syms is not None:
                 tables = dict.fromkeys((
                     b"pci", b"usb", b"ccw", b"ieee1394", b"pnp", b"pnp_card",
                     b"input", b"serio", b"of",
                 ))
                 
-                for sym in file.symtab_entries(syms):
-                    name = file.read_str(strings, sym.name)
+                for sym in syms.iter_symbols():
                     prefix = b"__mod_"
                     suffix = b"_device_table"
-                    if (not name.startswith(prefix) or
-                    not name.endswith(suffix)):
+                    if (not sym.name.startswith(prefix) or
+                    not sym.name.endswith(suffix)):
                         continue
-                    name = name[len(prefix):-len(suffix)]
+                    name = sym.name[len(prefix):-len(suffix)]
                     if name not in tables or tables[name] is not None:
                         continue
                     
-                    file.file.seek(
-                        file.shoff + file.shentsize * sym.shndx + 4)
-                    if file.read("L") == (file.SHT_NOBITS,):
+                    sect = file.get_section(sym["st_shndx"])
+                    if sect["sh_type"] == "SHT_NOBITS":
                         continue
-                    
-                    file.file.seek(+file.class_size + file.class_size,
-                        SEEK_CUR)
-                    (offset,) = file.read(file.class_type)
-                    tables[name] = offset + sym.value
+                    tables[name] = sect["sh_offset"] + sym["st_value"]
     print("{0}/{0}".format(len(tlist)))
     
     print("Reading dependencies of modules")
     for (i, mod) in enumerate(tlist):
         print("{}/{}".format(i, len(tlist)), end="\r")
         with mod.elf as file:
-            strings = file.get_section(b".strtab")
-            syms = file.get_section(b".symtab")
+            strings = file.get_section_by_name(b".strtab")
+            syms = file.get_section_by_name(b".symtab")
             if strings is None or syms is None:
                 print('{}: no ".strtab" or ".symtab"'.format(mod.pathname))
                 continue
             
-            sparc = file.machine in (file.EM_SPARC, file.EM_SPARCV9)
-            for sym in file.symtab_entries(syms):
-                if (sym.shndx != file.SHN_UNDEF or
-                sparc and sym.type == file.STT_SPARC_REGISTER):
+            sparc = file["e_machine"] in {"EM_SPARC", "EM_SPARCV9"}
+            for sym in syms.iter_symbols():
+                if (sym["st_shndx"] != "SHN_UNDEF" or
+                sparc and sym["type"] == elf.STT_SPARC_REGISTER):
                     continue
                 
-                name = file.read_str(strings, sym.name)
-                if name.startswith(b"."):
-                    lookup = name[1:]
+                if sym.name.startswith(b"."):
+                    lookup = sym.name[1:]
                 else:
-                    lookup = name
+                    lookup = sym.name
                 
                 try:
                     # Original "depmod" places later modules at front of hash
@@ -195,10 +189,10 @@ def depmod(basedir, kver):
         
         name = modname(mod.pathname)
         with mod.elf as file:
-            for alias in file.get_strings(b".modalias"):
+            for alias in elf.iter_strings(file, b".modalias"):
                 alias_index.add(underscores(alias), name, mod.order)
             
-            for p in file.get_strings(b".modinfo"):
+            for p in elf.iter_strings(file, b".modinfo"):
                 prefix = b"alias="
                 if not p.startswith(prefix):
                     continue
@@ -372,10 +366,35 @@ def underscores(string):
 def open_elf(path):
     (payload, raw) = gzopen(path)
     with raw:
-        if payload is raw:
-            return elf.FileRef(path)
+        if payload is raw:  # Uncompressed file
+            return FilenameElf(path)
         else:
-            return Context(elf.File(BytesIO(payload.read())))
+            return DataElf(payload.read())
+
+class FilenameElf:
+    def __init__(self, filename):
+        self._filename = filename
+    
+    def __enter__(self):
+        try:
+            self._f = open(self._filename, "rb")
+            return ELFFile(self._f)
+        except:
+            self._f.close()
+            raise
+    
+    def __exit__(self, *exc):
+        self._f.close()
+
+class DataElf:
+    def __init__(self, data):
+        self._file = BytesIO(data)
+    
+    def __enter__(self):
+        return ELFFile(self._file)
+    
+    def __exit__(self, *exc):
+        pass
 
 def gzopen(path):
     raw = open(path, "rb")
@@ -389,15 +408,6 @@ def gzopen(path):
     except:
         raw.close()
         raise
-
-class Context:
-    """A dummy context manager that does nothing special"""
-    def __init__(self, arg=None):
-        self.arg = arg
-    def __enter__(self):
-        return self.arg
-    def __exit__(self, *exc):
-        pass
 
 def slice_int(s):
     for (i, d) in enumerate(s):
