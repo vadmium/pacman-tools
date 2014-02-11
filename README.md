@@ -13,6 +13,10 @@ Run “pkgbundle help” for a list of options.
 Python script to build an Arch Linux _initcpio_ without using _chroot_ or
 target programs.
 
+Currently very hacky, brittle, incomplete, minimal, etc.
+Probably best to avoid use with real host root privileges;
+try “fakeroot” instead.
+
 # To install Arch Linux #
 
 To install basic system into a directory $DESTDIR:
@@ -28,3 +32,5 @@ Both the “core” and “extra” repositories may be needed
 to install all the dependencies of the “base” group.
 The $repo variable from the mirror list has to be manually substituted,
 and $repo.db appended, for each repository, however $arch may be retained.
+
+    mkinitcpio-cross --preset linux "$DESTDIR"
