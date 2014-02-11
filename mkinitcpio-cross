@@ -18,7 +18,6 @@ import subprocess
 import struct
 from os.path import isabs
 from linux_modules import depmod
-from subprocess import check_output, CalledProcessError
 
 def main(basedir, preset, *args, skip_depmod=False):
     get_mkinitcpio()
@@ -109,21 +108,19 @@ def preset_kver(basedir, preset):
         preset = os.path.join(basedir, "etc/mkinitcpio.d",
             preset + ".preset")
     
-    script = """
+    script = r"""\
+        set -o errexit -o nounset
         BASEDIR="$2"
         . source-transplant.sh
         . "$1"
         printf '%s' "$ALL_kver"
     """
-    cmd = "bash -o errexit -o nounset -c".split() + [
-        script, "kver", preset, basedir]
+    cmd = "bash -c".split() + [script, "--", preset, basedir]
     print("bash", preset)
     try:
-        kver = check_output(cmd, bufsize=-1, close_fds=True,
-            universal_newlines=True)
-    except CalledProcessError as e:
-        msg = "Bash failed with exit status {}"
-        raise SystemExit(msg.format(e.returncode))
+        kver = subprocess.check_output(cmd, universal_newlines=True)
+    except subprocess.CalledProcessError as e:
+        raise SystemExit(e.returncode)
     print("kver", kver)
     
     if isabs(kver):

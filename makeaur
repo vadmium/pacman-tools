@@ -85,7 +85,10 @@ def parseaurinfo(aurinfo):
 
 def getaurinfo(pkgbuild):
     script = StringIO()
-    print(r'''. "$1"''', file=script)
+    script.write(r"""\
+        set -o errexit -o nounset
+        . "$1"
+    """)
     line = r"""${{{pacman}+printf '{aur} = %s\n' "${{{pacman}[@]}}"}}"""
     for name in ("pkgname", "pkgdesc", "url", "license"):
         print(line.format(pacman=name, aur=name), file=script)
@@ -94,8 +97,7 @@ def getaurinfo(pkgbuild):
     print(line.format(pacman="depends", aur="depend"), file=script)
     
     script = script.getvalue()
-    proc = ("bash", "-o", "errexit", "-o", "nounset", "-c", script,
-        "--", pkgbuild)
+    proc = ("bash", "-c", script, "--", pkgbuild)
     return subprocess.Popen(proc, stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE)
 
