@@ -37,7 +37,8 @@ def depmod(basedir, kver):
             
             fullpath = os.path.join(dirpath, f)
             pathname = os.path.relpath(fullpath, dirname)
-            module_files.setdefault(f, Module(open_elf(fullpath), pathname))
+            if f not in module_files:
+                module_files[f] = Module(open_elf(fullpath), pathname)
         
         i = 0
         while i < len(dirnames):
