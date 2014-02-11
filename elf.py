@@ -15,7 +15,6 @@ from collections import namedtuple
 from elftools.construct import (Struct, Union)
 from misc import SEEK_CUR
 from collections import defaultdict
-from operator import itemgetter
 from collections import (Sequence, Mapping)
 from shorthand import bitmask
 from elftools.common.utils import (struct_parse, parse_cstring_from_stream)
@@ -602,7 +601,7 @@ def main(elf, relocs=False, dyn_syms=False, lookup=()):
         
         print("\nDynamic section entries:")
         dynamic = segments.read_dynamic()
-        entries = sorted(dynamic.entries.items(), key=itemgetter(0))
+        entries = sorted(dynamic.entries.items())
         for (tag, entries) in entries:
             if not entries:
                 continue

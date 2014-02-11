@@ -374,9 +374,8 @@ def open_elf(path):
             return Context(elf.File(BytesIO(payload.read())))
 
 def gzopen(path):
-    raw = None
+    raw = open(path, "rb")
     try:
-        raw = open(path, "rb")
         header = raw.read(2)
         raw.seek(0)
         if header == bytearray((31, 139)):
@@ -384,8 +383,7 @@ def gzopen(path):
         else:
             return (raw, raw)
     except:
-        if raw is not None:
-            raw.close()
+        raw.close()
         raise
 
 class Context:
