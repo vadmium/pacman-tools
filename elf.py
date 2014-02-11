@@ -317,6 +317,8 @@ class Dynamic(object):
             self.entries[entry['d_tag']].append(entry['d_un'])
     
     def get_stringtable(self):
+        """Returns the StringTable object for the dynamic linking array"""
+        
         strtab = self.entries[self.STRTAB]
         if not strtab:
             raise LookupError(
@@ -585,8 +587,19 @@ def main(elf, relocs=False, dyn_syms=False, lookup=()):
 def dump_segments(elf, *, relocs, dyn_syms, lookup):
     from os import fsencode
     
-    print("\nSegments (program headers):")
     segments = Segments(elf)
+    if not segments:
+        print("\nNo segments (program headers)")
+        if relocs:
+            print("Not showing relocation entries "
+                "without dynamic linking segment")
+        if dyn_syms:
+            print("Not showing symbols without dynamic linking segment")
+        if lookup:
+            print("Not looking up symbols without dynamic linking segment")
+        return
+    
+    print("\nSegments (program headers):")
     for seg in segments:
         if seg["p_type"] == "PT_INTERP":
             print("  PT_INTERP:", repr(seg.get_interp_name()))
