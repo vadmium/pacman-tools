@@ -583,6 +583,10 @@ def main(elf, relocs=False, dyn_syms=False, lookup=()):
             print("  {}: {}".format(attr, elf[attr]))
         
         dump_segments(elf, relocs=relocs, dyn_syms=dyn_syms, lookup=lookup)
+        
+        print("\nSections:")
+        for sect in elf.iter_sections():
+            print("  {!r}: {}".format(sect.name, sect["sh_type"]))
 
 def dump_segments(elf, *, relocs, dyn_syms, lookup):
     from os import fsencode
