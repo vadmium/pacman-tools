@@ -371,10 +371,10 @@ class Dynamic(object):
             return Class(self.elf, hash, symtab)
         return dict()
     
-    tag_attrs = dict(
-        rpath="DT_RPATH", runpath="DT_RUNPATH",
-        soname="DT_SONAME", needed="DT_NEEDED",
-    ).items()
+    tag_attrs = (
+        ("rpath", "DT_RPATH"), ("runpath", "DT_RUNPATH"),
+        ("soname", "DT_SONAME"), ("needed", "DT_NEEDED"),
+    )
 
 class SymbolTable(object):
     def __init__(self, stream, offset, entsize, elf, stringtable):
@@ -576,8 +576,8 @@ def dump_segments(elf, *, relocs, dyn_syms, lookup):
         
         print("  Tag {} ({})".format(tag, len(entries)))
         
-        strs = "DT_NEEDED, DT_RPATH, DT_RUNPATH, DT_SONAME"
-        if tag in strs.split(", "):
+        strs = {"DT_NEEDED", "DT_RPATH", "DT_RUNPATH", "DT_SONAME"}
+        if tag in strs:
             for str in entries:
                 print("    {!r}".format(dynamic.strtab[str]))
     

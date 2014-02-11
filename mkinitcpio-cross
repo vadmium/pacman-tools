@@ -115,7 +115,7 @@ def preset_kver(basedir, preset):
         . "$1"
         printf '%s' "$ALL_kver"
     """
-    cmd = "bash -c".split() + [script, "--", preset, basedir]
+    cmd = ("bash", "-c", script, "--", preset, basedir)
     print("bash", preset)
     try:
         kver = subprocess.check_output(cmd, universal_newlines=True)
