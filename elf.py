@@ -569,7 +569,6 @@ class StringTable(object):
         return parse_cstring_from_stream(self.stream, self.offset + offset)
 
 def main(elf, relocs=False, dyn_syms=False, lookup=()):
-    from os import fsencode
     from elftools.elf.elffile import ELFFile
     
     with open(elf, "rb") as elf:
@@ -581,64 +580,69 @@ def main(elf, relocs=False, dyn_syms=False, lookup=()):
         for attr in ("e_type", "e_machine", "e_version", "e_flags"):
             print("  {}: {}".format(attr, elf[attr]))
         
-        print("\nSegments (program headers):")
-        segments = Segments(elf)
-        for seg in segments:
-            if seg["p_type"] == "PT_INTERP":
-                print("  PT_INTERP:", repr(seg.get_interp_name()))
-            else:
-                print("  {}".format(seg["p_type"]))
+        dump_segments(elf, relocs=relocs, dyn_syms=dyn_syms, lookup=lookup)
+
+def dump_segments(elf, *, relocs, dyn_syms, lookup):
+    from os import fsencode
+    
+    print("\nSegments (program headers):")
+    segments = Segments(elf)
+    for seg in segments:
+        if seg["p_type"] == "PT_INTERP":
+            print("  PT_INTERP:", repr(seg.get_interp_name()))
+        else:
+            print("  {}".format(seg["p_type"]))
+    
+    print("\nDynamic section entries:")
+    dynamic = segments.read_dynamic()
+    entries = sorted(dynamic.entries.items())
+    for (tag, entries) in entries:
+        if not entries:
+            continue
         
-        print("\nDynamic section entries:")
-        dynamic = segments.read_dynamic()
-        entries = sorted(dynamic.entries.items())
-        for (tag, entries) in entries:
-            if not entries:
-                continue
-            
-            out = format_tag(tag, dynamic,
-                "NEEDED, RPATH, RUNPATH, SONAME, "
-                "REL, RELA, HASH, GNU_HASH"
-            )
-            print("  Tag {} ({})".format(out, len(entries)))
-            
-            str = "NEEDED, RPATH, RUNPATH, SONAME".split(", ")
-            if tag in (getattr(dynamic, name) for name in str):
-                for str in entries:
-                    print("    {!r}".format(dynamic.strtab[str]))#["d_val"]]))
-            
-        if relocs:
-            print("\nRelocation entries:")
-            symtab = dynamic.symbol_table()
-            found = False
-            for rel in dynamic.rel_entries():
-                found = True
-                if rel["r_info_sym"]:
-                    sym = symtab[rel["r_info_sym"]]
-                    print("  {}".format(format_symbol(sym)))
-                else:
-                    print("  Sym UNDEF")
-            if not found:
-                print("  (None)")
+        out = format_tag(tag, dynamic,
+            "NEEDED, RPATH, RUNPATH, SONAME, "
+            "REL, RELA, HASH, GNU_HASH"
+        )
+        print("  Tag {} ({})".format(out, len(entries)))
         
-        if dyn_syms:
-            print("\nSymbols from hash table:")
-            symtab = dynamic.symbol_table()
-            hash = dynamic.symbol_hash(symtab)
-            for sym in hash:
+        str = "NEEDED, RPATH, RUNPATH, SONAME".split(", ")
+        if tag in (getattr(dynamic, name) for name in str):
+            for str in entries:
+                print("    {!r}".format(dynamic.strtab[str]))#["d_val"]]))
+    
+    if relocs:
+        print("\nRelocation entries:")
+        symtab = dynamic.symbol_table()
+        found = False
+        for rel in dynamic.rel_entries():
+            found = True
+            if rel["r_info_sym"]:
+                sym = symtab[rel["r_info_sym"]]
                 print("  {}".format(format_symbol(sym)))
-        
-        if lookup:
-            print("\nSymbol lookup results:")
-        for name in lookup:
-            symtab = dynamic.symbol_table()
-            hash = dynamic.symbol_hash(symtab)
-            try:
-                sym = hash[fsencode(name)]
-            except LookupError:
-                print("  Symbol not found:", name)
             else:
-                print("  {}".format(format_symbol(sym)))
+                print("  Sym UNDEF")
+        if not found:
+            print("  (None)")
+    
+    if dyn_syms:
+        print("\nSymbols from hash table:")
+        symtab = dynamic.symbol_table()
+        hash = dynamic.symbol_hash(symtab)
+        for sym in hash:
+            print("  {}".format(format_symbol(sym)))
+    
+    if lookup:
+        print("\nSymbol lookup results:")
+    for name in lookup:
+        symtab = dynamic.symbol_table()
+        hash = dynamic.symbol_hash(symtab)
+        try:
+            sym = hash[fsencode(name)]
+        except LookupError:
+            print("  Symbol not found:", name)
+        else:
+            print("  {}".format(format_symbol(sym)))
 
 def format_tag(tag, obj, names):
     names = dict((getattr(obj, name), name) for name in names.split(", "))
