@@ -15,9 +15,11 @@ from io import SEEK_CUR
 from collections import defaultdict
 from collections import (Sequence, Mapping)
 from shorthand import bitmask
-from elftools.common.utils import (struct_parse, parse_cstring_from_stream)
+from elftools.common.utils import struct_parse
 from elftools.elf.sections import Symbol
 from elftools.elf.relocation import Relocation
+from operator import attrgetter
+from elftools.elf.strings import StringTable
 from elftools.elf.descriptions import describe_dyn_tag
 
 class Elf:
@@ -108,84 +110,44 @@ class Segments(Sequence):
         return self.list[i]
     
     def read_dynamic(self):
-        """Reads dynamic segments into new Dynamic() object"""
-        
-        dynamic = Dynamic(self, self.elf)
-        for seg in self:
-            if seg['p_type'] != 'PT_DYNAMIC':
-                continue
-            
-            dynamic.add(seg)
-        
-        dynamic.strtab = dynamic.get_stringtable()
-        return dynamic
-    
-    def map(self, start, size=None):
-        """Map from memory address to file offset"""
-        
-        end = start
-        if size is not None:
-            end += size
-        
-        # Find a segment containing the memory region
-        found = None
-        for seg in self:
-            if (start >= seg['p_vaddr'] and
-            end <= seg['p_vaddr'] + seg['p_filesz']):
-                # Region is contained completely within this segment
-                new = start - seg['p_vaddr'] + seg['p_offset']
-                if found is not None and found != new:
-                    msg = "Inconsistent mapping for memory address 0x{:X}"
-                    raise ValueError(msg.format(start))
-                found = new
-        
-        if found is None:
-            raise LookupError("No segment found for 0x{:X}".format(start))
-        return found
+        """Reads the dynamic linking segment"""
+        dynamic = tuple(seg for seg in self if seg['p_type'] == 'PT_DYNAMIC')
+        (dynamic,) = dynamic
+        return Dynamic(self.elf, dynamic)
 
 class Dynamic(object):
-    def __init__(self, segments, elf):
-        self.segments = segments
+    def __init__(self, elf, eliben):
         self.elf = elf
+        self.eliben = eliben
         
-        self.entries = defaultdict(list)
-        for (name, tag) in self.tag_attrs:
-            setattr(self, name, self.entries[tag])
-    
-    def add(self, dyn):
-        for tag in dyn.iter_tags():
-            self.entries[tag.entry.d_tag].append(tag.entry.d_val)
-    
-    def get_stringtable(self):
-        """Returns the StringTable object for the dynamic linking array"""
-        
-        strtab = self.entries["DT_STRTAB"]
+        strtab = tuple(self.eliben.iter_tags("DT_STRTAB"))
         if not strtab:
             raise LookupError("No string table in dynamic linking array")
         
         (strtab,) = strtab
-        strsz = self.entries["DT_STRSZ"]
+        strsz = tuple(self.eliben.iter_tags("DT_STRSZ"))
         if strsz:
             (strsz,) = strsz
+            strsz = strsz.entry.d_val
         else:
             strsz = None
         
-        strtab = self.segments.map(strtab, strsz)
-        return StringTable(self.elf.stream, strtab, strsz)
+        strtab = self.elf.map(strtab.entry.d_ptr, strsz)
+        self.strtab = StringTable(self.elf.stream, strtab, strsz)
     
     def rel_entries(self):
         for (type, size) in (
             ("DT_RELA", "DT_RELASZ"),
             ("DT_REL", "DT_RELSZ"),
         ):
-            entries = self.entries[type]
+            entries = tuple(self.eliben.iter_tags(type))
             if entries:
                 yield from self.rel_table_entries(entries, size, type)
         
-        entries = self.entries["DT_JMPREL"]
+        entries = tuple(self.eliben.iter_tags("DT_JMPREL"))
         if entries:
-            (pltrel,) = self.entries["DT_PLTREL"]
-            pltrel = describe_dyn_tag(pltrel)
+            (pltrel,) = self.eliben.iter_tags("DT_PLTREL")
+            pltrel = describe_dyn_tag(pltrel.entry.d_val)
             yield from self.rel_table_entries(entries, "DT_PLTRELSZ", pltrel)
     
     def rel_table_entries(self, entries, size, type):
@@ -195,9 +157,11 @@ class Dynamic(object):
         }[type]
         
         (table,) = entries
-        (size,) = self.entries[size]
-        (entsize,) = self.entries[entsize]
-        table = self.segments.map(table, size)
+        (size,) = self.eliben.iter_tags(size)
+        size = size.entry.d_val
+        (entsize,) = self.eliben.iter_tags(entsize)
+        entsize = entsize.entry.d_val
+        table = self.elf.map(table.entry.d_ptr, size)
         
         if entsize < Struct.sizeof():
             msg = "{} entry size too small: {}"
@@ -214,26 +178,21 @@ class Dynamic(object):
             yield Relocation(entry, self.elf)
     
     def symbol_table(self):
-        (symtab,) = self.entries["DT_SYMTAB"]
-        (syment,) = self.entries["DT_SYMENT"]
-        symtab = self.segments.map(symtab)
-        return SymbolTable(self.elf.stream, symtab, syment,
+        (symtab,) = self.eliben.iter_tags("DT_SYMTAB")
+        (syment,) = self.eliben.iter_tags("DT_SYMENT")
+        symtab = self.elf.map(symtab.entry.d_ptr)
+        return SymbolTable(self.elf.stream, symtab, syment.entry.d_val,
             self.elf, self.strtab)
     
     def symbol_hash(self, symtab):
         for (tag, Class) in (("DT_GNU_HASH", GnuHash), ("DT_HASH", Hash)):
-            hash = self.entries[tag]
+            hash = tuple(self.eliben.iter_tags(tag))
             if not hash:
                 continue
             (hash,) = hash
-            hash = self.segments.map(hash)
+            hash = self.elf.map(hash.entry.d_ptr)
             return Class(self.elf, hash, symtab)
         return dict()
-    
-    tag_attrs = (
-        ("rpath", "DT_RPATH"), ("runpath", "DT_RUNPATH"),
-        ("soname", "DT_SONAME"), ("needed", "DT_NEEDED"),
-    )
 
 class SymbolTable(object):
     def __init__(self, stream, offset, entsize, elf, stringtable):
@@ -255,7 +214,7 @@ class SymbolTable(object):
         
         name = entry['st_name']
         if name:
-            name = self.stringtable[name]
+            name = self.stringtable.get_string(name)
         else:
             name = None
         
@@ -378,14 +337,6 @@ class GnuHash(BaseHash):
                 raise KeyError(name)
             bucket += 1
 
-class StringTable(object):
-    def __init__(self, stream, offset, size):
-        self.stream = stream
-        self.offset = offset
-        self.size = size
-    def __getitem__(self, offset):
-        return parse_cstring_from_stream(self.stream, self.offset + offset)
-
 def main(elf, relocs=False, dyn_syms=False, lookup=()):
     from elftools.elf.elffile import ELFFile
     
@@ -428,17 +379,17 @@ def dump_segments(elf, *, relocs, dyn_syms, lookup):
     
     print("\nDynamic linking entries:")
     dynamic = segments.read_dynamic()
-    entries = sorted(dynamic.entries.items())
-    for (tag, entries) in entries:
-        if not entries:
-            continue
-        
-        print("  Tag {} ({})".format(tag, len(entries)))
+    key = attrgetter("entry.d_tag")
+    entries = sorted(dynamic.eliben.iter_tags(), key=key)
+    for tag in entries:
+        print("  Tag {}".format(tag.entry.d_tag), end="")
         
         strs = {"DT_NEEDED", "DT_RPATH", "DT_RUNPATH", "DT_SONAME"}
-        if tag in strs:
-            for str in entries:
-                print("    {!r}".format(dynamic.strtab[str]))
+        if tag.entry.d_tag in strs:
+            str = getattr(tag, tag.entry.d_tag[3:].lower())
+            print(": {!r}".format(str), end="")
+        
+        print()
     
     if relocs:
         print("\nRelocation entries:")

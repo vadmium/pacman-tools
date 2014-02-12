@@ -34,8 +34,8 @@ class Deps(object):
                 yield seg.get_interp_name()
     
     def needed(self):
-        for entry in self.dynamic.needed:
-            entry = self.dynamic.strtab[entry]
+        for tag in self.dynamic.eliben.iter_tags('DT_NEEDED'):
+            entry = tag.needed
             name = self.sub_origin(entry)
             yield dict(search=b"/" not in name, name=name, raw_name=entry)
     
@@ -47,10 +47,9 @@ class Deps(object):
                 yield filename
     
     def search_dirs(self, config_dirs):
-        if not self.dynamic.runpath:
-            for dirs in self.dynamic.rpath:
-                dirs = self.dynamic.strtab[dirs]
-                for dir in dirs.split(b":"):
+        if not any(self.dynamic.eliben.iter_tags('DT_RUNPATH')):
+            for dirs in self.dynamic.eliben.iter_tags('DT_RPATH'):
+                for dir in dirs.rpath.split(b":"):
                     # $ORIGIN substitution in DT_RPATH string seen in Libre
                     # Office 3.6.2's libmozbootstrap.so file. The Gnu "ldd"
                     # command seems to respect it, despite the ELF spec-
@@ -73,9 +72,8 @@ class Deps(object):
                     for dir in dirs.split(b":"):
                         yield dir.lstrip(b"/")
         
-        for dirs in self.dynamic.runpath:
-            dirs = self.dynamic.strtab[dirs]
-            for dir in dirs.split(b":"):
+        for dirs in self.dynamic.eliben.iter_tags('DT_RUNPATH'):
+            for dir in dirs.runpath.split(b":"):
                 try:
                     dir = self.sub_origin(dir)
                 except ValueError:
