@@ -161,8 +161,7 @@ class Dynamic(object):
         
         strtab = self.entries["DT_STRTAB"]
         if not strtab:
-            raise LookupError(
-                "String table entry not found in dynamic linking array")
+            raise LookupError("No string table in dynamic linking array")
         
         (strtab,) = strtab
         strsz = self.entries["DT_STRSZ"]
@@ -427,7 +426,7 @@ def dump_segments(elf, *, relocs, dyn_syms, lookup):
         else:
             print("  {}".format(seg["p_type"]))
     
-    print("\nDynamic section entries:")
+    print("\nDynamic linking entries:")
     dynamic = segments.read_dynamic()
     entries = sorted(dynamic.entries.items())
     for (tag, entries) in entries:
