@@ -30,6 +30,7 @@ from operator import itemgetter
 import elf
 from elftools.elf.elffile import ELFFile
 from contextlib import (ExitStack, closing)
+from elf import dynamic_symbol_table, dynamic_symbol_hash
 from os import execvp
 from lzma import LZMAFile
 from elftools.common.exceptions import ELFError
@@ -371,15 +372,15 @@ class Analyser(object):
                 return not fail
         
         with ExitStack() as context:
-            symtab = dynamic.symbol_table()
+            symtab = dynamic_symbol_table(dynamic)
             
             hashes = list()
             hashes.append(dynamic.symbol_hash(symtab))
             for file in needed_paths:
                 file = context.enter_context(closing(self.fs.open(file)))
                 ddynamic = elf.Segments(ELFFile(file)).read_dynamic()
-                dsymtab = ddynamic.symbol_table()
-                hashes.append(ddynamic.symbol_hash(dsymtab))
+                dsymtab = dynamic_symbol_table(ddynamic)
+                hashes.append(dynamic_symbol_hash(ddynamic, dsymtab))
             
             # Find unresolved symbol references in the file being analysed
             for rel in dynamic.rel_entries():
