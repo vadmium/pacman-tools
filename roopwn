@@ -30,7 +30,6 @@ from operator import itemgetter
 import elf
 from elftools.elf.elffile import ELFFile
 from contextlib import (ExitStack, closing)
-from elf import SymbolTable
 from os import execvp
 from lzma import LZMAFile
 from elftools.common.exceptions import ELFError
