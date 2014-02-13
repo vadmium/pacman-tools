@@ -71,8 +71,8 @@ def iter_strings(elf, secname):
     size = sec["sh_size"]
     while True:
         while size:
-            peek = ord(elf.stream.read(1))
-            if peek:
+            peek = elf.stream.read(1)
+            if peek != b"\x00":
                 elf.stream.seek(-1, SEEK_CUR)
                 break
             size -= 1
@@ -86,10 +86,10 @@ def iter_strings(elf, secname):
                 raise EOFError(msg)
             size -= 1
             
-            c = ord(elf.stream.read(1))
-            if not c:
+            c = elf.stream.read(1)
+            if c == b"\x00":
                 break
-            sym.append(c)
+            sym.extend(c)
         
         yield bytes(sym)
     
