@@ -8,6 +8,10 @@ different operating system or architecture.
 
 Run “pkgbundle help” for a list of options.
 
+## depmod ##
+
+Python implementation of Linux’s _depmod_ program.
+
 ## mkinitcpio ##
 
 Python script to build an Arch Linux initial ramdisk
@@ -33,4 +37,14 @@ to install all the dependencies of the “base” group.
 The $repo variable from the mirror list has to be manually substituted,
 and $repo.db appended, for each repository, however $arch may be retained.
 
+Emulate the “depmod” and “mkinitcpio” calls
+from the post_install() script of the “linux” package as follows.
+(The install script should be in $DESTDIR/var/spool/pkgbundle/install/linux
+or at
+<https://projects.archlinux.org/svntogit/packages.git/tree/trunk/linux.install?h=packages/linux>.)
+The “depmod” files installed with the Linux package a refer
+to module file names ending with “.ko”,
+but the actual file names end with “.ko.gz”.
+
+    depmod . . .
     mkinitcpio --preset linux "$DESTDIR"

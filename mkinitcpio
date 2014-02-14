@@ -17,16 +17,9 @@ import os
 import subprocess
 import struct
 from os.path import isabs
-from linux_modules import depmod
 
-def main(basedir, preset, *args, skip_depmod=False):
+def main(basedir, preset):
     get_mkinitcpio()
-    
-    # The "depmod" files installed with the Linux package a refer to module
-    # file names ending with ".ko", but the actual file names end with
-    # ".ko.gz"
-    if not skip_depmod:
-        depmod(basedir, preset_kver(basedir, preset))
     
     # The "mkinitcpio" script tries to run ". functions", so get it to run
     # our "functions" script first via the search path.
@@ -173,6 +166,5 @@ if __name__ == "__main__":
     params = ArgumentParser(description=summary, epilog=body)
     params.add_argument("basedir")
     params.add_argument("-p", "--preset", required=True)
-    params.add_argument("--skip-depmod", action="store_true")
     args = params.parse_args()
-    main(args.basedir, args.preset, *args.args, skip_depmod=args.skip_depmod)
+    main(args.basedir, args.preset)
