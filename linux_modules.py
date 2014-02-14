@@ -1,5 +1,3 @@
-#! /usr/bin/env python3
-
 from io import BytesIO
 import elf
 from elftools.elf.elffile import ELFFile
