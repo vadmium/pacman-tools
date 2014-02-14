@@ -8,10 +8,10 @@ different operating system or architecture.
 
 Run “pkgbundle help” for a list of options.
 
-## mkinitcpio-cross ##
+## mkinitcpio ##
 
-Python script to build an Arch Linux _initcpio_ without using _chroot_ or
-target programs.
+Python script to build an Arch Linux initial ramdisk
+without using _chroot_ or target programs.
 
 Currently very hacky, brittle, incomplete, minimal, etc.
 Probably best to avoid use with real host root privileges;
@@ -33,4 +33,4 @@ to install all the dependencies of the “base” group.
 The $repo variable from the mirror list has to be manually substituted,
 and $repo.db appended, for each repository, however $arch may be retained.
 
-    mkinitcpio-cross --preset linux "$DESTDIR"
+    mkinitcpio --preset linux "$DESTDIR"

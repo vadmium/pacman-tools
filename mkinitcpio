@@ -173,7 +173,6 @@ if __name__ == "__main__":
     params = ArgumentParser(description=summary, epilog=body)
     params.add_argument("basedir")
     params.add_argument("-p", "--preset", required=True)
-    params.add_argument("args", nargs="*", default=[])
     params.add_argument("--skip-depmod", action="store_true")
     args = params.parse_args()
     main(args.basedir, args.preset, *args.args, skip_depmod=args.skip_depmod)
