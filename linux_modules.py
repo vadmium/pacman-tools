@@ -104,7 +104,8 @@ def depmod(basedir, kver):
             strings = file.get_section_by_name(b".strtab")
             syms = file.get_section_by_name(b".symtab")
             if strings is None or syms is None:
-                print('{}: no ".strtab" or ".symtab"'.format(mod.pathname))
+                msg = '{}: no ".strtab" nor ".symtab" sections'
+                print(msg.format(mod.pathname))
                 continue
             
             sparc = file["e_machine"] in {"EM_SPARC", "EM_SPARCV9"}
