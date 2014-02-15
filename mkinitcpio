@@ -98,7 +98,7 @@ def get_mkinitcpio():
 MKINITCPIO="mkinitcpio"
 
 def preset_kver(basedir, preset):
-    if not isabs(preset):
+    if not {os.sep, os.altsep}.intersection(preset):  # No explicit path
         preset = os.path.join(basedir, "etc", "mkinitcpio.d",
             preset + ".preset")
     
