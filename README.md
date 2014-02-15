@@ -26,7 +26,7 @@ try “fakeroot” instead.
 To install basic system into a directory $DESTDIR:
 
     DBPATH="$DESTDIR/var/lib/pacman" CACHEDIR="$DESTDIR/var/cache/pacman" \
-    pkgbundle fs "$DESTDIR" fs-sudo \
+    ./pkgbundle fs "$DESTDIR" fs-sudo \
         repo 'http://mirrors.kernel.org/archlinux/core/os/$arch/core.db' \
         repo 'http://mirrors.kernel.org/archlinux/extra/os/$arch/extra.db' \
         install base
@@ -46,5 +46,6 @@ The “depmod” files installed with the Linux package a refer
 to module file names ending with “.ko”,
 but the actual file names end with “.ko.gz”.
 
-    depmod . . .
-    mkinitcpio --preset linux "$DESTDIR"
+    . "$DESTDIR/var/spool/pkgbundle/install/linux"  # Get $KERNEL_VERSION
+    ./depmod --basedir "$DESTDIR" "$KERNEL_VERSION"
+    ./mkinitcpio "$DESTDIR" --preset linux
