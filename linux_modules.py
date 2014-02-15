@@ -9,6 +9,7 @@ from collections import defaultdict
 import struct
 from os.path import commonprefix
 from os.path import basename
+import sys
 
 MODULE_DIR = os.path.join("lib", "modules")
 
@@ -26,10 +27,10 @@ def depmod(basedir, kver):
     verify_version(kver)
     
     dirname = os.path.join(basedir, MODULE_DIR, kver)
-    print("Scanning modules in", dirname)
+    print("Scanning modules in", dirname, file=sys.stderr)
     module_files = dict()
     for (dirpath, dirnames, filenames) in os.walk(dirname, followlinks=True):
-        #~ print("Scanning", dirpath)
+        #~ print("Scanning", dirpath, file=sys.stderr)
         for f in filenames:
             if not f.endswith((".ko", ".ko.gz")):
                 continue
@@ -46,7 +47,7 @@ def depmod(basedir, kver):
             else:
                 i = i + 1
     
-    print('Ordering modules by "modules.order"')
+    print('Ordering modules by "modules.order"', file=sys.stderr)
     module_paths = dict((mod.pathname, mod) for mod in module_files.values())
     
     tlist = list()
@@ -63,10 +64,10 @@ def depmod(basedir, kver):
                 tlist.append(mod)
     tlist.extend(module_paths.values())
     
-    print("Reading symbols from modules")
+    print("Reading symbols from modules", file=sys.stderr)
     symbol_owners = defaultdict(list)
     for (i, mod) in enumerate(tlist):
-        print("{}/{}".format(i, len(tlist)), end="\r")
+        print("{}/{}".format(i, len(tlist)), end="\r", file=sys.stderr)
         with mod.elf as file:
             for sym in elf.iter_strings(file, b"__ksymtab_strings"):
                 symbol_owners[sym].append(mod)
@@ -93,17 +94,17 @@ def depmod(basedir, kver):
                     if sect["sh_type"] == "SHT_NOBITS":
                         continue
                     tables[name] = sect["sh_offset"] + sym["st_value"]
-    print("{0}/{0}".format(len(tlist)))
+    print("{0}/{0}".format(len(tlist)), file=sys.stderr)
     
-    print("Reading dependencies of modules")
+    print("Reading dependencies of modules", file=sys.stderr)
     for (i, mod) in enumerate(tlist):
-        print("{}/{}".format(i, len(tlist)), end="\r")
+        print("{}/{}".format(i, len(tlist)), end="\r", file=sys.stderr)
         with mod.elf as file:
             strings = file.get_section_by_name(b".strtab")
             syms = file.get_section_by_name(b".symtab")
             if strings is None or syms is None:
                 msg = '{}: no ".strtab" nor ".symtab" sections'
-                print(msg.format(mod.pathname))
+                print(msg.format(mod.pathname), file=sys.stderr)
                 continue
             
             sparc = file["e_machine"] in {"EM_SPARC", "EM_SPARCV9"}
@@ -125,12 +126,13 @@ def depmod(basedir, kver):
                     continue
                 
                 #~ msg = "{} needs {!r}: {}"
-                #~ print(msg.format(mod.pathname, name, owner.pathname))
+                #~ msg = msg.format(mod.pathname, name, owner.pathname)
+                #~ print(msg, file=sys.stderr)
                 mod.deps.add(owner)
-    print("{0}/{0}".format(len(tlist)))
+    print("{0}/{0}".format(len(tlist)), file=sys.stderr)
     
     deps_index = Index()
-    print('Generating "modules.dep"')
+    print('Generating "modules.dep"', file=sys.stderr)
     with open(os.path.join(dirname, "modules.dep"), "w") as file:
         for (i, mod) in enumerate(tlist):
             dfs_steps = list()
@@ -158,8 +160,9 @@ def depmod(basedir, kver):
                         if node in ancestors:
                             msg = ("{}: Ignoring cyclic dependency of {} "
                                 "on {}")
-                            print(msg.format(mod.pathname,
-                                current["node"].pathname, node.pathname))
+                            msg = msg.format(mod.pathname,
+                                current["node"].pathname, node.pathname)
+                            print(msg, file=sys.stderr)
                             continue
                         if node in visited:
                             continue
@@ -178,13 +181,13 @@ def depmod(basedir, kver):
             deps_index.add(modname(mod.pathname), line.encode("ASCII"),
                 mod.order)
     
-    print('Writing "modules.dep.bin"')
+    print('Writing "modules.dep.bin"', file=sys.stderr)
     deps_index.write(dirname, "modules.dep.bin")
     
-    print('Generating "modules.alias.bin"')
+    print('Generating "modules.alias.bin"', file=sys.stderr)
     alias_index = Index()
     for (i, mod) in enumerate(tlist):
-        print("{}/{}".format(i, len(tlist)), end="\r")
+        print("{}/{}".format(i, len(tlist)), end="\r", file=sys.stderr)
         
         name = modname(mod.pathname)
         with mod.elf as file:
@@ -197,10 +200,10 @@ def depmod(basedir, kver):
                     continue
                 alias = p[len(prefix):]
                 alias_index.add(underscores(alias), name, mod.order)
-    print("{0}/{0}".format(len(tlist)))
+    print("{0}/{0}".format(len(tlist)), file=sys.stderr)
     alias_index.write(dirname, "modules.alias.bin")
     
-    print('Writing "modules.symbols.bin"')
+    print('Writing "modules.symbols.bin"', file=sys.stderr)
     symbols_index = Index()
     for (name, owners) in symbol_owners.items():
         # Owners list should be ordered according to modules.order
@@ -351,7 +354,7 @@ def underscores(string):
             continue
         if c == b"]":
             msg = "{}: unexpected closing square bracket"
-            print(msg.format(string.decode()))
+            print(msg.format(string.decode()), file=sys.stderr)
         
         if c == b"-":
             c = b"_"

@@ -110,18 +110,18 @@ def preset_kver(basedir, preset):
         printf '%s' "$ALL_kver"
     """
     cmd = ("bash", "-c", script, "--", preset, basedir)
-    print("bash", preset)
+    print("bash", preset, file=sys.stderr)
     try:
         kver = subprocess.check_output(cmd, universal_newlines=True)
     except subprocess.CalledProcessError as e:
         raise SystemExit(e.returncode)
-    print("kver", kver)
+    print("kver", kver, file=sys.stderr)
     
     if isabs(kver):
         # Extract version from boot image; based on
         # https://github.com/glensc/file/blob/master/magic/Magdir/linux
         vmlinuz = os.path.join(basedir, kver.lstrip("/"))
-        print("extract version", vmlinuz)
+        print("extract version", vmlinuz, file=sys.stderr)
         with open(vmlinuz, "rb") as file:
             if random_read(file, 514, 4) != b"HdrS":
                 msg = "Unrecognised Linux boot image: {}".format(vmlinuz)
@@ -149,7 +149,7 @@ def preset_kver(basedir, preset):
                     break
                 kver.extend(c)
         kver = kver.decode()
-        print("kver", kver)
+        print("kver", kver, file=sys.stderr)
     
     return kver
 
