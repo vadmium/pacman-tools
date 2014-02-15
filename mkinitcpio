@@ -109,41 +109,41 @@ def generate_image(basedir, args):
 
 def get_kver(basedir, kver):
     print("kver", kver, file=sys.stderr)
+    if not isabs(kver):
+        return kver
     
-    if isabs(kver):
-        # Extract version from boot image; based on
-        # https://github.com/glensc/file/blob/master/magic/Magdir/linux
-        vmlinuz = os.path.join(basedir, kver.lstrip("/"))
-        print("extract version", vmlinuz, file=sys.stderr)
-        with open(vmlinuz, "rb") as file:
-            if random_read(file, 514, 4) != b"HdrS":
-                msg = "Unrecognised Linux boot image: {}".format(vmlinuz)
-                raise ValueError(msg)
-            
-            (value,) = struct.unpack("<H", random_read(file, 510, 2))
-            if value != 0xAA55:
-                msg = "Unrecognised Linux boot image: {}".format(vmlinuz)
-                raise ValueError(msg)
-            
-            (value,) = struct.unpack("<H", random_read(file, 518, 2))
-            if value < 0x200:
-                msg = "Unrecognised Linux boot image: {}".format(vmlinuz)
-                raise ValueError(msg)
-            
-            (offset,) = struct.unpack("<H", random_read(file, 526, 2))
-            file.seek(0x200 + offset)
-            kver = bytearray()
-            while True:
-                c = file.read(1)
-                if not c:
-                    msg = "Unterminated version string in {}"
-                    raise ValueError(msg.format(vmlinuz))
-                if c in b"\0 ":
-                    break
-                kver.extend(c)
-        kver = kver.decode()
-        print("kver", kver, file=sys.stderr)
-    
+    # Extract version from boot image; based on
+    # https://github.com/glensc/file/blob/master/magic/Magdir/linux
+    vmlinuz = os.path.join(basedir, kver.lstrip("/"))
+    print("extract version", vmlinuz, file=sys.stderr)
+    with open(vmlinuz, "rb") as file:
+        if random_read(file, 514, 4) != b"HdrS":
+            msg = "Unrecognised Linux boot image: {}".format(vmlinuz)
+            raise ValueError(msg)
+        
+        (value,) = struct.unpack("<H", random_read(file, 510, 2))
+        if value != 0xAA55:
+            msg = "Unrecognised Linux boot image: {}".format(vmlinuz)
+            raise ValueError(msg)
+        
+        (value,) = struct.unpack("<H", random_read(file, 518, 2))
+        if value < 0x200:
+            msg = "Unrecognised Linux boot image: {}".format(vmlinuz)
+            raise ValueError(msg)
+        
+        (offset,) = struct.unpack("<H", random_read(file, 526, 2))
+        file.seek(0x200 + offset)
+        kver = bytearray()
+        while True:
+            c = file.read(1)
+            if not c:
+                msg = "Unterminated version string in {}"
+                raise ValueError(msg.format(vmlinuz))
+            if c in b"\0 ":
+                break
+            kver.extend(c)
+    kver = kver.decode()
+    print("kver", kver, file=sys.stderr)
     return kver
 
 def splitdoc(doc):
