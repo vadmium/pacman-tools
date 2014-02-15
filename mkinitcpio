@@ -15,19 +15,38 @@ import struct
 from os.path import isabs
 import os.path
 from collections import defaultdict
+from argparse import ArgumentParser
 
 def main():
-    from argparse import ArgumentParser
+    imageparams = ArgumentParser(add_help=False)
+    group = imageparams.add_argument_group("image settings")
+    group.add_argument("-k", "--kernel")
+    group.add_argument("-c", "--config")
+    group.add_argument("-g", "--generate")
+    group.add_argument("-S", "--skiphooks", action="append", default=list())
+    
     from inspect import getdoc
     (summary, body) = splitdoc(getdoc(sys.modules[__name__]))
-    params = ArgumentParser(description=summary, epilog=body)
+    params = ArgumentParser(description=summary, epilog=body,
+        parents=(imageparams,))
     params.add_argument("basedir")
-    params.add_argument("-p", "--preset", required=True)
+    params.add_argument("-p", "--preset")
+    
     args = params.parse_args()
+    if args.preset is None:
+        generate_image(args.basedir, args)
+        return
     
     for image in preset_images(args.basedir, args.preset):
         msg = "{}: image {!r}".format(args.preset, image["name"])
         print(msg, file=sys.stderr)
+        imageparams.set_defaults(
+            kernel=image["kver"],
+            config=image["config"],
+            generate=image["file"],
+        )
+        imageargs = imageparams.parse_args(image["options"])
+        generate_image(args.basedir, imageargs)
 
 def preset_images(basedir, preset):
     if not {os.sep, os.altsep}.intersection(preset):  # No explicit path
@@ -80,6 +99,13 @@ def preset_images(basedir, preset):
                 value = vars[b"ALL_" + bkey]
             image[key] = os.fsdecode(value[0])
         yield image
+
+def generate_image(basedir, args):
+    if args.config is None:
+        configfile = ("etc", "mkinitcpio.conf")
+    else:
+        configfile = (args.config.lstrip("/"),)
+    configfile = os.path.join(basedir, *configfile)
 
 def get_kver(basedir, kver):
     print("kver", kver, file=sys.stderr)
