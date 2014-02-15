@@ -142,7 +142,7 @@ def get_kver(basedir, kver):
             if c in b"\0 ":
                 break
             kver.extend(c)
-    kver = kver.decode()
+    kver = os.fsdecode(bytes(kver))  # bytearray specifically not accepted
     print("kver", kver, file=sys.stderr)
     return kver
 
