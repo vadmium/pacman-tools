@@ -10,7 +10,7 @@ import struct
 from os.path import commonprefix
 from os.path import basename
 
-MODULE_DIR = "lib/modules"
+MODULE_DIR = os.path.join("lib", "modules")
 
 # This function, and some of the functions it calls, are based on "depmod"
 # from "module-init-tools" (apparently GPL 2)

@@ -17,6 +17,7 @@ import os
 import subprocess
 import struct
 from os.path import isabs
+import os.path
 
 def main(basedir, preset):
     get_mkinitcpio()
@@ -98,7 +99,7 @@ MKINITCPIO="mkinitcpio"
 
 def preset_kver(basedir, preset):
     if not isabs(preset):
-        preset = os.path.join(basedir, "etc/mkinitcpio.d",
+        preset = os.path.join(basedir, "etc", "mkinitcpio.d",
             preset + ".preset")
     
     script = r"""\
