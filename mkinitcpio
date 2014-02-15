@@ -14,6 +14,7 @@ import subprocess
 import struct
 from os.path import isabs
 import os.path
+from collections import defaultdict
 
 def main():
     from argparse import ArgumentParser
@@ -23,8 +24,12 @@ def main():
     params.add_argument("basedir")
     params.add_argument("-p", "--preset", required=True)
     args = params.parse_args()
+    
+    for image in preset_images(args.basedir, args.preset):
+        msg = "{}: image {!r}".format(args.preset, image["name"])
+        print(msg, file=sys.stderr)
 
-def preset_kver(basedir, preset):
+def preset_images(basedir, preset):
     if not {os.sep, os.altsep}.intersection(preset):  # No explicit path
         preset = os.path.join(basedir, "etc", "mkinitcpio.d",
             preset + ".preset")
@@ -34,14 +39,49 @@ def preset_kver(basedir, preset):
         BASEDIR="$2"
         . source-transplant.sh
         . "$1"
-        printf '%s' "$ALL_kver"
+        
+        ${PRESETS+printf "PRESETS\0%s\0" "${PRESETS[@]}"}
+        for preset in ALL "${PRESETS[@]}"; do
+            for suffix in kver config image; do
+                var="${preset}_${suffix}"
+                ${!var+printf "$var\0%s\0" "${!var}"}
+            done
+            
+            var="${preset}_options"
+            options=(${!var-})  # Expand any words into array
+            ${options+printf "$var\0%s\0" "${options[@]}"}
+        done
     """
     cmd = ("bash", "-c", script, "--", preset, basedir)
     print("bash", preset, file=sys.stderr)
     try:
-        kver = subprocess.check_output(cmd, universal_newlines=True)
+        serial = subprocess.check_output(cmd)
     except subprocess.CalledProcessError as e:
         raise SystemExit(e.returncode)
+    
+    serial = serial.split(b"\x00")[:-1]
+    vars = defaultdict(list)
+    for i in range(len(serial) // 2):
+        vars[serial[i + 0]].append(serial[i + 1])
+    vars.default_factory = None
+    
+    for bname in vars[b"PRESETS"]:
+        options = vars.get(bname + b"_options", ())
+        options = (opt.decode("ascii") for opt in options)
+        image = dict(
+            name=bname.decode("ascii"),
+            file=vars[bname + b"_image"][0],
+            options=options,
+        )
+        for key in ("kver", "config"):
+            bkey = key.encode("ascii")
+            value = vars.get(bname + b"_" + bkey)
+            if value is None:
+                value = vars[b"ALL_" + bkey]
+            image[key] = os.fsdecode(value[0])
+        yield image
+
+def get_kver(basedir, kver):
     print("kver", kver, file=sys.stderr)
     
     if isabs(kver):
