@@ -16,6 +16,9 @@ from os.path import isabs
 import os.path
 from collections import defaultdict
 from argparse import ArgumentParser
+from stat import S_IRUSR, S_IWUSR, S_IXUSR
+from stat import S_IRGRP, S_IXGRP, S_IROTH, S_IXOTH
+from tempfile import TemporaryDirectory
 
 def main():
     imageparams = ArgumentParser(add_help=False)
@@ -106,6 +109,64 @@ def generate_image(basedir, args):
     else:
         configfile = (args.config.lstrip("/"),)
     configfile = os.path.join(basedir, *configfile)
+    
+    if args.kernel == "none":
+        kver = None
+    else:
+        kver = get_kver(basedir, args.kernel)
+    
+    with TemporaryDirectory(prefix="mkinitcpio.") as root:
+        stage = Stage(root, basedir=basedir, kver=kver)
+
+class Stage:
+    def __init__(self, root, *, basedir, kver=None):
+        self.basedir = basedir
+        self.root = root
+        self.kver = kver
+        self.base_filesystem()
+    
+    def base_filesystem(self):
+        dirmode = (S_IRUSR | S_IWUSR | S_IXUSR |
+            S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH)
+        
+        dirs = (
+            "new_root", "proc", "sys", "dev", "run", "tmp", "etc", "lib",
+            "bin",
+        )
+        for dir in dirs:
+            dir = os.path.join(self.root, dir)
+            os.mkdir(dir)
+            os.chmod(dir, dirmode)  # No interference from "umask"
+        
+        aliases = (
+            ("usr", os.curdir),
+            ("local", os.curdir),  # A.k.a. /usr/local/
+            ("sbin", "bin"),
+            
+            # Only needed for 64-bit target architecture
+            ("lib64", "lib"),
+        )
+        for (alias, target) in aliases:
+            alias = os.path.join(self.root, alias)
+            os.symlink(target, alias, target_is_directory=True)
+        
+        file = os.path.join(self.root, "VERSION")
+        with open(file, "w", encoding="ascii") as file:
+            file.write("Python mkinitcpio")
+        
+        if self.kver is not None:
+            dir = os.path.join(self.root, "lib")
+            for subdir in ("modules", self.kver, "kernel"):
+                dir = os.path.join(dir, subdir)
+                os.mkdir(dir)
+                os.chmod(dir, dirmode)  # No interference from "umask"
+        
+        target = os.path.join(os.pardir, "proc", "self", "mounts")
+        alias = os.path.join(self.root, "etc", "mtab")
+        os.symlink(target, alias, target_is_directory=False)
+        
+        for etcfile in ("fstab", "initrd-release", "ld.so.conf"):
+            open(os.path.join(self.root, "etc", etcfile), "wb").close()
 
 def get_kver(basedir, kver):
     print("kver", kver, file=sys.stderr)
