@@ -56,35 +56,26 @@ def preset_images(basedir, preset):
         preset = os.path.join(basedir, "etc", "mkinitcpio.d",
             preset + ".preset")
     
+    vars = defaultdict(list)
     script = r"""\
-        set -o errexit -o nounset
         BASEDIR="$2"
         . source-transplant.sh
         . "$1"
         
-        ${PRESETS+printf "PRESETS\0%s\0" "${PRESETS[@]}"}
+        output PRESETS
         for preset in ALL "${PRESETS[@]}"; do
             for suffix in kver config image; do
-                var="${preset}_${suffix}"
-                ${!var+printf "$var\0%s\0" "${!var}"}
+                output "${preset}_${suffix}"
             done
             
             var="${preset}_options"
             options=(${!var-})  # Expand any words into array
-            ${options+printf "$var\0%s\0" "${options[@]}"}
+            output "$var" options
         done
     """
-    cmd = ("bash", "-c", script, "--", preset, basedir)
     print("bash", preset, file=sys.stderr)
-    try:
-        serial = subprocess.check_output(cmd)
-    except subprocess.CalledProcessError as e:
-        raise SystemExit(e.returncode)
-    
-    serial = serial.split(b"\x00")[:-1]
-    vars = defaultdict(list)
-    for i in range(len(serial) // 2):
-        vars[serial[i + 0]].append(serial[i + 1])
+    for (name, value) in parse_bash(script, preset, basedir):
+        vars[name].append(value)
     vars.default_factory = None
     
     for bname in vars[b"PRESETS"]:
@@ -109,6 +100,7 @@ def generate_image(basedir, args):
     else:
         configfile = (args.config.lstrip("/"),)
     configfile = os.path.join(basedir, *configfile)
+    config = get_config(configfile)
     
     if args.kernel == "none":
         kver = None
@@ -117,6 +109,35 @@ def generate_image(basedir, args):
     
     with TemporaryDirectory(prefix="mkinitcpio.") as root:
         stage = Stage(root, basedir=basedir, kver=kver)
+
+def get_config(file):
+    arrays = {"HOOKS", "MODULES", "BINARIES", "FILES"}
+    config = dict((array, list()) for array in arrays)
+    script = r"""\
+        . "$1"
+        
+        # Expand words
+        HOOKS=($HOOKS)
+        COMPRESSION_OPTIONS=(${COMPRESSION_OPTIONS-})
+        
+        set -o noglob
+        MODULES=($MODULES)
+        BINARIES=($BINARIES)
+        FILES=($FILES)
+        set +o noglob
+        
+        for var in \
+        MODULES BINARIES FILES HOOKS COMPRESSION COMPRESSION_OPTIONS; do
+            output "$var"
+        done
+    """
+    for (name, value) in parse_bash(script, file):
+        name = name.decode("ascii")
+        if name in arrays:
+            config[name].append(os.fsdecode(value))
+        else:
+            config.setdefault(name, value)
+    return config
 
 class Stage:
     def __init__(self, root, *, basedir, kver=None):
@@ -167,6 +188,24 @@ class Stage:
         
         for etcfile in ("fstab", "initrd-release", "ld.so.conf"):
             open(os.path.join(self.root, "etc", etcfile), "wb").close()
+
+def parse_bash(script, *args):
+    script = r"""
+        set -o errexit -o nounset
+        
+        output() {
+            set -- "$1" "${2-$1}[@]"
+            ${!2+printf "$1"='%s\0\n' "${!2}"}
+        }
+    """ + script
+    cmd = ("bash", "-c", script, "--") + args
+    try:
+        output = subprocess.check_output(cmd)
+    except subprocess.CalledProcessError as e:
+        raise SystemExit(e.returncode)
+    
+    for item in output.split(b"\0\n")[:-1]:
+        yield item.split(b"=", 1)
 
 def get_kver(basedir, kver):
     print("kver", kver, file=sys.stderr)
