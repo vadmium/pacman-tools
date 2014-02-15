@@ -9,93 +9,20 @@ bash: parse mkinitcpio preset file
 """
 
 import sys
-from os import (
-    access, X_OK,
-    execv, pathsep, getcwd, environ,
-)
 import os
 import subprocess
 import struct
 from os.path import isabs
 import os.path
 
-def main(basedir, preset):
-    get_mkinitcpio()
-    
-    # The "mkinitcpio" script tries to run ". functions", so get it to run
-    # our "functions" script first via the search path.
-    PATH = "PATH"
-    path = getcwd()
-    try:
-        path = pathsep.join((path, environ[PATH]))
-    except LookupError:
-        pass
-    environ[PATH] = path
-    
-    environ["BASEDIR"] = basedir
-    
-    args = (MKINITCPIO, "-p", preset) + args
-    print(*args, file=sys.stderr)
-    sys.stderr.flush()
-    execv(args[0], args)
-
-def get_mkinitcpio():
-    if access(MKINITCPIO, X_OK):
-        return
-    
-    from shutil import copyfileobj
-    from os import (fstat, fchmod)
-    from stat import (S_IXUSR, S_IXGRP, S_IXOTH)
-    from contextlib import closing
-    
-    try:
-        from urllib.request import (urlopen, Request)
-    except ImportError:
-        from urllib2 import (urlopen, Request)
-    
-    url = "https://projects.archlinux.org/{0}.git/plain/{0}?id=0.7.2"
-    req = Request(url.format(MKINITCPIO))
-    with open(MKINITCPIO, "wb") as file:
-        stat = fstat(file.fileno())
-        size = stat.st_size
-        UNIT = "bytes"
-        if size:
-            req.add_header("Range", "{}={}-".format(UNIT, size))
-            print("Continuing", req.get_full_url(), file=sys.stderr)
-        else:
-            print("Downloading", req.get_full_url(), file=sys.stderr)
-        with closing(urlopen(req)) as url:
-            CONTENT_RANGE = "Content-Range"
-            try:
-                range = url.info()[CONTENT_RANGE]
-            except LookupError:
-                range = None
-            if range is None:
-                file.seek(0)
-                total = url.info()["Content-Length"]
-                if total is None:
-                    print(MKINITCPIO, file=sys.stderr)
-                else:
-                    msg = "{} {}: {}".format(MKINITCPIO, UNIT, int(total))
-                    print(msg, file=sys.stderr)
-            else:
-                print(CONTENT_RANGE, range, file=sys.stderr)
-                if not range.startswith(UNIT):
-                    msg = "{} not in {}".format(CONTENT_RANGE, UNIT)
-                    raise ValueError(msg)
-                range = range[len(UNIT):].lstrip()
-                (range, _, total) = range.partition("/")
-                (start, _, _) = range.partition("-")
-                file.seek(start)
-                msg = "{} {}: {}+/{}"
-                print(msg.format(MKINITCPIO, UNITS, start, total),
-                    file=sys.stderr)
-            
-            copyfileobj(url, file)
-        file.truncate()
-        fchmod(file.fileno(), stat.st_mode | S_IXUSR | S_IXGRP | S_IXOTH)
-
-MKINITCPIO="mkinitcpio"
+def main():
+    from argparse import ArgumentParser
+    from inspect import getdoc
+    (summary, body) = splitdoc(getdoc(sys.modules[__name__]))
+    params = ArgumentParser(description=summary, epilog=body)
+    params.add_argument("basedir")
+    params.add_argument("-p", "--preset", required=True)
+    args = params.parse_args()
 
 def preset_kver(basedir, preset):
     if not {os.sep, os.altsep}.intersection(preset):  # No explicit path
@@ -161,11 +88,4 @@ def random_read(file, offset, size):
     return file.read(size)
 
 if __name__ == "__main__":
-    from argparse import ArgumentParser
-    from inspect import getdoc
-    (summary, body) = splitdoc(getdoc(sys.modules[__name__]))
-    params = ArgumentParser(description=summary, epilog=body)
-    params.add_argument("basedir")
-    params.add_argument("-p", "--preset", required=True)
-    args = params.parse_args()
-    main(args.basedir, args.preset)
+    main()
