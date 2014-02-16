@@ -27,9 +27,14 @@ def depmod(basedir, kver):
     verify_version(kver)
     
     dirname = os.path.join(basedir, MODULE_DIR, kver)
+    if not os.access(dirname, os.W_OK):
+        msg = "WARNING: {}: No write access!".format(dirname)
+        print(msg, file=sys.stderr)
+    
     print("Scanning modules in", dirname, file=sys.stderr)
     module_files = dict()
-    for (dirpath, dirnames, filenames) in os.walk(dirname, followlinks=True):
+    tree = os.walk(dirname, onerror=raiseerror, followlinks=True)
+    for (dirpath, dirnames, filenames) in tree:
         #~ print("Scanning", dirpath, file=sys.stderr)
         for f in filenames:
             if not f.endswith((".ko", ".ko.gz")):
@@ -418,3 +423,6 @@ def slice_int(s):
     else:
         i = len(s)
     return (int(s[:i]), s[i:])
+
+def raiseerror(err):
+    raise err
