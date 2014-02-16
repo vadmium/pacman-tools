@@ -104,8 +104,10 @@ def generate_image(basedir, args):
     
     if args.kernel == "none":
         kver = None
+        moddir = None
     else:
         kver = get_kver(basedir, args.kernel)
+        moddir = os.path.join(basedir, "lib", "modules", kver)
     
     with TemporaryDirectory(prefix="mkinitcpio.") as root:
         stage = Stage(root, basedir=basedir, kver=kver)
@@ -116,14 +118,24 @@ def generate_image(basedir, args):
             if path is None:
                 raise LookupError("Hook not found: {!r}".format(hook))
             
-            script = r"""\
-                set -o errexit -o nounset
-                . "$1"
-                build
-            """
+            localdir = os.path.dirname(__file__)
             print("build", path, file=sys.stderr)
+            
+            # Using concrete file
+            # because $BASH_SOURCE does not seem to work with "bash -c"
+            script = os.path.join(localdir, "hook-build.bash")
+            functions = os.path.join(basedir, "usr", "lib", "initcpio",
+                "functions")
+            cmd = ("bash", script,
+                "ROOT=" + root,
+                "HOOK=" + os.path.join(basedir, path),
+                "KERNELVERSION=" + kver,
+                "FUNCTIONS=" + functions,
+            )
+            if moddir is not None:
+                cmd += ("_d_kmoduledir=" + moddir,)
             try:
-                subprocess.check_call(("bash", "-c", script, "--", path))
+                subprocess.check_call(cmd)
             except subprocess.CalledProcessError as e:
                 raise SystemExit(e.returncode)
 
