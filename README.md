@@ -1,5 +1,8 @@
 ﻿# Scripts for Pacman and Arch Linux packages #
 
+* roopwn: Pacman wrapper with ELF dependency checking
+* makeaur: Builds source package with AURINFO and signature
+
 ## pkgbundle ##
 
 Posix shell script to install Arch Linux packages. Does not use _chroot_ or
