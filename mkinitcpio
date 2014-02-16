@@ -5,7 +5,7 @@ installation of 64-bit OS from 32-bit-only environment.
 
 Requirements:
 
-bash: parse mkinitcpio preset file
+bash: parse preset and config files; run hook install scripts
 """
 
 import sys
@@ -109,6 +109,23 @@ def generate_image(basedir, args):
     
     with TemporaryDirectory(prefix="mkinitcpio.") as root:
         stage = Stage(root, basedir=basedir, kver=kver)
+        
+        for hook in config["HOOKS"]:
+            install = os.path.join("initcpio", "install", hook)
+            path = which(basedir, (("etc",), ("usr", "lib")), install)
+            if path is None:
+                raise LookupError("Hook not found: {!r}".format(hook))
+            
+            script = r"""\
+                set -o errexit -o nounset
+                . "$1"
+                build
+            """
+            print("build", path, file=sys.stderr)
+            try:
+                subprocess.check_call(("bash", "-c", script, "--", path))
+            except subprocess.CalledProcessError as e:
+                raise SystemExit(e.returncode)
 
 def get_config(file):
     arrays = {"HOOKS", "MODULES", "BINARIES", "FILES"}
@@ -245,6 +262,14 @@ def get_kver(basedir, kver):
     kver = os.fsdecode(bytes(kver))  # bytearray specifically not accepted
     print("kver", kver, file=sys.stderr)
     return kver
+
+def which(basedir, paths, leaf):
+    for path in paths:
+        path = os.path.join(*(path + (leaf,)))
+        if os.path.exists(os.path.join(basedir, path)):
+            return path
+    else:
+        return None
 
 def splitdoc(doc):
     return doc.split("\n\n", 1)
