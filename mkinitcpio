@@ -106,6 +106,10 @@ def generate_image(basedir, args):
     configfile = os.path.join(basedir, *configfile)
     config = get_config(configfile)
     
+    skiphooks = set()
+    for hooks in args.skiphooks:
+        skiphooks.update(hooks.split(","))
+    
     if args.kernel == "none":
         kver = None
         moddir = None
@@ -117,6 +121,9 @@ def generate_image(basedir, args):
         stage = Stage(root, basedir=basedir, kver=kver)
         
         for hook in config["HOOKS"]:
+            if hook in skiphooks:
+                continue
+            
             install = os.path.join("initcpio", "install", hook)
             path = which(basedir, (("etc",), ("usr", "lib")), install)
             if path is None:
