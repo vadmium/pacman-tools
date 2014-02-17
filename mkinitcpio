@@ -168,6 +168,13 @@ def generate_image(basedir, args):
             raise NotImplementedError("Add file {}".format(file))
         
         shutil.copyfile(configfile, os.path.join(root, "buildconfig"))
+        
+        # Generate shell script for runtime
+        with open(os.path.join(root, "config"), "wb") as file:
+            stage.runhooks[b"CLEANUPHOOKS"].reverse()
+            for (type, hooks) in stage.runhooks.items():
+                hooks = b" ".join(map(os.fsencode, hooks))
+                file.writelines((type, b'="', hooks, b'"\n'))
 
 def get_config(file):
     arrays = {"HOOKS", "MODULES", "BINARIES", "FILES"}
@@ -204,6 +211,8 @@ class Stage:
         self.root = root
         self.srcfs = Filesystem(basedir)
         self.libcache = deps.LibCache(self.srcfs)
+        self.runhooks = dict((type, list()) for
+            type in self.hooktypes.values())
         self.kver = kver
         self.base_filesystem()
     
@@ -306,6 +315,44 @@ class Stage:
         else:
             self.makeparent(alias[1:])
             os.symlink(target, os.path.join(self.root, alias[1:]))
+    
+    def add_runscript(self, hook):
+        hook = os.path.basename(hook)
+        hookpath = os.path.join("initcpio", "hooks", hook)
+        script = which(self.basedir, (("etc",), ("usr", "lib")), hookpath)
+        if script is None:
+            msg = "Hook runtime script not found: {}".format(hook)
+            raise LookupError(msg)
+        
+        dest = os.path.join("hooks", hook)
+        self.makeparent(dest)
+        script = os.path.join(self.basedir, script)
+        dest = os.path.join(self.root, dest)
+        shutil.copyfile(script, dest)
+        os.chmod(dest, S_IRUSR | S_IWUSR | S_IXUSR |
+            S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH)
+        
+        getfuncs = r"""
+            set -o errexit -o nounset
+            set -o posix
+            . "$1"
+            compgen -A function
+        """
+        cmd = ("bash", "-c", getfuncs, "--", script)
+        with subprocess.Popen(cmd, stdout=subprocess.PIPE) as bash:
+            for function in bash.stdout:
+                type = self.hooktypes.get(function)
+                if type:
+                    self.runhooks[type].append(hook)
+        if bash.returncode:
+            raise SystemExit(bash.returncode)
+    
+    hooktypes = {
+        b"run_earlyhook\n": b"EARLYHOOKS",
+        b"run_hook\n": b"HOOKS",
+        b"run_latehook\n": b"LATEHOOKS",
+        b"run_cleanuphook\n": b"CLEANUPHOOKS",
+    }
     
     def recursive_exe(self, src, dest):
         basesrc = os.path.join(self.basedir, src)
