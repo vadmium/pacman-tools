@@ -273,6 +273,40 @@ class Stage:
             dest = dest[1:]
         self.recursive_exe(src, dest)
     
+    def add_file(self, src, dest=None, mode=None):
+        """
+        src is an absolute file name
+        dest is optionally an absolute file name
+        mode, if present, is an octal string, otherwise the source file mode is used
+        """
+        if dest is None:
+            dest = src
+        self.makeparent(dest[1:])
+        src = os.path.join(self.basedir, src[1:])
+        dest = os.path.join(self.root, dest[1:])
+        if mode:
+            shutil.copyfile(src, dest)
+            os.chmod(dest, int(mode, 8))
+        else:
+            shutil.copy(src, dest)
+    
+    def add_symlink(self, alias, target=None):
+        """copy symlink from host if target not given
+        create target directory (mode 755) if necessary"""
+        if target is None:
+            while True:
+                src = os.path.join(self.basedir, alias[1:])
+                dest = os.path.join(self.root, alias[1:])
+                shutil.copy(src, dest, follow_symlinks=True)
+                alias = os.path.join(alias, os.readlink(src))
+                if not os.path.islink(os.path.join(self.basedir, alias[1:])):
+                    break
+                if os.path.exists(os.path.join(self.root, alias[1:])):
+                    break
+        else:
+            self.makeparent(alias[1:])
+            os.symlink(target, os.path.join(self.root, alias[1:]))
+    
     def recursive_exe(self, src, dest):
         basesrc = os.path.join(self.basedir, src)
         self.makeparent(dest)
