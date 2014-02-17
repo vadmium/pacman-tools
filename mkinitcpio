@@ -149,6 +149,25 @@ def generate_image(basedir, args):
                 subprocess.check_call(cmd)
             except subprocess.CalledProcessError as e:
                 raise SystemExit(e.returncode)
+        
+        print("Handling build commands", file=sys.stderr)
+        filename = os.path.join(root, "buildcommands")
+        with open(filename, "rb") as file:
+            commands = file.read()
+        os.remove(filename)
+        for command in commands.split(b"\0\n")[:-1]:
+            command = command.split(b"\0 ")
+            method = getattr(stage, command[0][1:].decode("ascii"))
+            method(*(os.fsdecode(arg) for arg in command[1:]))
+        
+        for mod in config["MODULES"]:
+            raise NotImplementedError("Add kernel module {}".format(mod))
+        for exe in config["BINARIES"]:
+            raise NotImplementedError("Add executable {}".format(exe))
+        for file in config["FILES"]:
+            raise NotImplementedError("Add file {}".format(file))
+        
+        shutil.copyfile(configfile, os.path.join(root, "buildconfig"))
 
 def get_config(file):
     arrays = {"HOOKS", "MODULES", "BINARIES", "FILES"}
