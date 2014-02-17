@@ -19,6 +19,10 @@ from argparse import ArgumentParser
 from stat import S_IRUSR, S_IWUSR, S_IXUSR
 from stat import S_IRGRP, S_IXGRP, S_IROTH, S_IXOTH
 from tempfile import TemporaryDirectory
+import shutil
+import deps
+from functools import partial
+from elftools.elf.elffile import ELFFile
 
 def main():
     imageparams = ArgumentParser(add_help=False)
@@ -172,6 +176,8 @@ class Stage:
     def __init__(self, root, *, basedir, kver=None):
         self.basedir = basedir
         self.root = root
+        self.srcfs = Filesystem(basedir)
+        self.libcache = deps.LibCache(self.srcfs)
         self.kver = kver
         self.base_filesystem()
     
@@ -217,6 +223,92 @@ class Stage:
         
         for etcfile in ("fstab", "initrd-release", "ld.so.conf"):
             open(os.path.join(self.root, "etc", etcfile), "wb").close()
+    
+    def add_binary(self, src, dest=None):
+        """Add file and shared library dependencies
+        src is a command or absolute file name
+        dest is optionally an absolute file name (or target directory?)
+        """
+        
+        if src.startswith("/"):
+            src = src[1:]
+        else:
+            hiers = ("usr", "local")
+            hlens = reversed(range(len(hiers) + 1))
+            bins = ("sbin", "bin")
+            paths = (hiers[:h] + (b,) for h in hlens for b in bins)
+            path = which(self.basedir, paths, src)
+            if path is None:
+                raise LookupError("Executable not found: {}".format(src))
+            src = path
+        if dest is None:
+            dest = src
+        else:
+            dest = dest[1:]
+        self.recursive_exe(src, dest)
+    
+    def recursive_exe(self, src, dest):
+        basesrc = os.path.join(self.basedir, src)
+        self.makeparent(dest)
+        shutil.copy(basesrc, os.path.join(self.root, dest))
+        
+        with open(basesrc, "rb") as file:
+            for dep in self.elfdeps(src, file):
+                dep = os.fsdecode(dep)
+                srcdep = os.path.join(self.basedir, dep)
+                destdep = os.path.join(self.root, dep)
+                
+                if os.path.exists(srcdep) and not os.path.exists(destdep):
+                    if os.path.islink(srcdep):
+                        shutil.copy(srcdep, destdep, follow_symlinks=True)
+                        target = os.readlink(srcdep)
+                        if os.path.isabs(target):
+                            dep = target[1:]
+                        else:
+                            dep = os.path.join(os.path.dirname(dep), target)
+                    self.recursive_exe(dep, dep)
+    
+    def elfdeps(self, filename, file):
+        origin = partial(self.srcfs.get_origin, filename)
+        privileged = deps.is_privileged(os.stat(file.fileno()).st_mode)
+        d = deps.Deps(ELFFile(file), origin, privileged)
+        for interp in d.interps():
+            yield interp
+        for needed in d.needed():
+            if needed["search"]:
+                found = d.search_lib(needed["name"], self.libcache)
+                found = next(found, None)
+                if found is not None:
+                    yield found
+            else:
+                yield needed["name"]
+    
+    def makeparent(self, filename):
+        mode = (S_IRUSR | S_IWUSR | S_IXUSR |
+            S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH)
+        dir = -1
+        while True:
+            dir = filename.find("/", 1 + dir)
+            if dir < 0:
+                break
+            dirname = os.path.join(self.root, filename[:dir])
+            if not os.path.exists(dirname):
+                os.mkdir(dirname)
+                os.chmod(dirname, mode)  # No interference from "umask"
+
+class Filesystem(deps.Filesystem):
+    def __init__(self, basedir):
+        self.basedir = basedir
+    
+    def ospath(self, path):
+        return os.path.join(self.basedir, os.fsdecode(path))
+    
+    def open(self, path):
+        return open(self.ospath(path), "rb")
+    def readlink(self, path):
+        return os.readlink(self.ospath(path))
+    def listdir(self, path):
+        return os.listdir(self.ospath(path))
 
 def parse_bash(script, *args):
     script = r"""

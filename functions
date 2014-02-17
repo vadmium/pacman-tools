@@ -8,11 +8,6 @@ PRESETDIR="$BASEDIR/etc/$PRESETDIR"
 
 . source-transplant.sh
 
-# Force the "ldd" program to search the target instead of host
-ldd() {
-    ldd-cross "$BASEDIR" "$@"
-}
-
 # Substitute long "modprobe -RS" option names because the short ones
 # aren't available in older versions
 xargs() {
