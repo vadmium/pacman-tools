@@ -316,6 +316,38 @@ class Stage:
             self.makeparent(alias[1:])
             os.symlink(target, os.path.join(self.root, alias[1:]))
     
+    def add_full_dir(self, dir):
+        dir = dir[1:]
+        self.makeparent(dir)
+        
+        dir = os.path.join(self.basedir, dir)
+        for (srcdir, subdirs, files) in os.walk(dir, onerror=raiseerror):
+            reldir = os.path.relpath(srcdir, self.basedir)
+            stagedir = os.path.join(self.root, reldir)
+            if not os.path.isdir(stagedir):
+                os.mkdir(stagedir)
+            os.chmod(stagedir, S_IRUSR | S_IWUSR | S_IXUSR |
+                S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH)
+            
+            for i in reversed(range(len(subdirs))):
+                subdir = subdirs[i]
+                if subdir.startswith("."):
+                    del subdirs[i]
+                    continue
+                
+                src = os.path.join(srcdir, subdir)
+                if os.path.islink(src):
+                    dest = os.path.join(stagedir, subdir)
+                    shutil.copy(src, dest, follow_symlinks=True)
+            
+            for file in files:
+                if file.startswith("."):
+                    continue
+                
+                src = os.path.join(srcdir, file)
+                dest = os.path.join(stagedir, file)
+                shutil.copy(src, dest, follow_symlinks=True)
+    
     def add_runscript(self, hook):
         hook = os.path.basename(hook)
         hookpath = os.path.join("initcpio", "hooks", hook)
@@ -488,6 +520,9 @@ def splitdoc(doc):
 def random_read(file, offset, size):
     file.seek(offset)
     return file.read(size)
+
+def raiseerror(err):
+    raise err
 
 if __name__ == "__main__":
     main()
