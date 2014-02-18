@@ -23,6 +23,7 @@ import shutil
 import deps
 from functools import partial
 from elftools.elf.elffile import ELFFile
+from linux_modules import modinfo
 
 def main():
     imageparams = ArgumentParser(add_help=False)
@@ -110,15 +111,24 @@ def generate_image(basedir, args):
     for hooks in args.skiphooks:
         skiphooks.update(hooks.split(","))
     
+    builtinmods = set()
     if args.kernel == "none":
         kver = None
         moddir = None
     else:
         kver = get_kver(basedir, args.kernel)
         moddir = os.path.join(basedir, "lib", "modules", kver)
+        
+        with open(os.path.join(moddir, "modules.builtin"), "rb") as file:
+            for name in file:
+                name = name.rsplit(b"/", 1)[-1]
+                if name.endswith(b".ko"):
+                    name = name[:-3]
+                builtinmods.add(name.replace(b"-", b"_"))
     
     with TemporaryDirectory(prefix="mkinitcpio.") as root:
-        stage = Stage(root, basedir=basedir, kver=kver)
+        stage = Stage(root,
+            basedir=basedir, kver=kver, builtinmods=builtinmods)
         
         for hook in config["HOOKS"]:
             if hook in skiphooks:
@@ -206,7 +216,7 @@ def get_config(file):
     return config
 
 class Stage:
-    def __init__(self, root, *, basedir, kver=None):
+    def __init__(self, root, *, basedir, kver=None, builtinmods=None):
         self.basedir = basedir
         self.root = root
         self.srcfs = Filesystem(basedir)
@@ -214,6 +224,9 @@ class Stage:
         self.runhooks = dict((type, list()) for
             type in self.hooktypes.values())
         self.kver = kver
+        self.builtinmods = builtinmods
+        self.addmods = set()
+        self.modpaths = set()
         self.base_filesystem()
     
     def base_filesystem(self):
@@ -378,6 +391,64 @@ class Stage:
                     self.runhooks[type].append(hook)
         if bash.returncode:
             raise SystemExit(bash.returncode)
+    
+    def add_module(self, module):
+        if self.kver is None:
+            return
+        
+        optional = module.endswith("?")
+        if optional:
+            module = module[:-1]
+        self.recursive_module(module, optional)
+    
+    def recursive_module(self, module, optional=False):
+        module = module.rsplit(".ko", 1)[0]
+        underscores = module.replace("-", "_")
+        if underscores in self.builtinmods or underscores in self.addmods:
+            return
+        
+        try:
+            info = modinfo(self.basedir, self.kver, module)
+        except LookupError:
+            if optional:
+                return
+            raise
+        
+        self.modpaths.add(info["filename"])
+        self.addmods.add(module)
+        
+        for deps in info[b"depends"]:
+            if not deps:
+                continue
+            for dep in deps.split(b","):
+                self.recursive_module(os.fsdecode(dep))
+        
+        missing = False
+        for fw in info[b"firmware"]:
+            fw = os.fsdecode(fw)
+            optusr = (("usr",), ())
+            optupdates = (("updates",), ())
+            paths = (usr + ("lib", "firmware") + updates for
+                usr in optusr for updates in optupdates)
+            fwpath = which(self.basedir, paths, fw)
+            if fwpath is None:
+                missing = True
+                continue
+            self.makeparent(fwpath)
+            dest = os.path.join(self.root, fwpath)
+            shutil.copyfile(os.path.join(self.basedir, fwpath), dest)
+            os.chmod(dest, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
+        if missing:
+            msg = "Module {}: possibly missing firmware".format(module)
+            print(msg, file=sys.stderr)
+        
+        quirks = {
+            "fat": ("nsl_cp437",),
+            "ocfs2": ("configfs",),
+            "libcrc32c": ("crc32c_intel", "crc32c"),
+        }
+        for quirk in quirks.get(module, ()):
+            self.recursive_module(quirk, optional=True)
     
     hooktypes = {
         b"run_earlyhook\n": b"EARLYHOOKS",
