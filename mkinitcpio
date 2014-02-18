@@ -107,7 +107,9 @@ def generate_image(basedir, args):
     configfile = os.path.join(basedir, *configfile)
     config = get_config(configfile)
     
-    skiphooks = set()
+    # The "fsck" build() function accesses file directly from the hosts
+    # system, and shouldn't be critical anyway
+    skiphooks = {"fsck"}
     for hooks in args.skiphooks:
         skiphooks.update(hooks.split(","))
     
