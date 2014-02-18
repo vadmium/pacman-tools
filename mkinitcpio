@@ -25,6 +25,7 @@ from functools import partial
 from elftools.elf.elffile import ELFFile
 from linux_modules import modinfo, depmod
 import gzip, lzma, io
+from contextlib import ExitStack
 
 def main():
     imageparams = ArgumentParser(add_help=False)
@@ -240,6 +241,43 @@ def generate_image(basedir, args):
                         os.remove(os.path.join(moddest, file))
             else:
                 print("No modules to add to image", file=sys.stderr)
+        
+        image = os.fsdecode(args.generate)
+        print("Generating image: {}".format(image), file=sys.stderr)
+        cmd = ("cpio", "--null", "--create", "--format", "newc")
+        if os.geteuid():
+            cmd += ("--owner", "0:0")
+        with ExitStack() as cleanup:
+            cpio = subprocess.Popen(cmd, cwd=root,
+                stdin=subprocess.PIPE, bufsize=0, stdout=subprocess.PIPE)
+            cleanup.enter_context(cpio)
+            
+            # Close pipeline input before waiting on any subprocess
+            with cpio.stdin:
+                comp = config.get("COMPRESSION", ["gzip"])
+                opts = config.get("COMPRESSION_OPTIONS", list())
+                extraopts = {("xz",): ("--check=crc32",), ("lz4",): ("-l",)}
+                opts.extend(extraopts.get(tuple(comp), ()))
+                comp.extend(opts)
+                with cpio.stdout, \
+                open(os.path.join(basedir, image[1:]), "wb") as out:
+                    comp = subprocess.Popen(comp,
+                        stdin=cpio.stdout, stdout=out)
+                    cleanup.enter_context(comp)
+                
+                tree = os.walk(root, onerror=raiseerror)
+                for (dir, subdirs, files) in tree:
+                    reldir = os.path.relpath(dir, root)
+                    for name in subdirs:
+                        name = os.fsencode(os.path.join(reldir, name))
+                        cpio.stdin.writelines((name, b"\x00"))
+                    for name in files:
+                        name = os.fsencode(os.path.join(reldir, name))
+                        cpio.stdin.writelines((name, b"\x00"))
+        
+        status = max(cpio.returncode, comp.returncode)
+        if status:
+            raise SystemExit(status)
 
 def get_config(file):
     arrays = {"HOOKS", "MODULES", "BINARIES", "FILES"}

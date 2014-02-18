@@ -30,15 +30,6 @@ xargs() {
     command xargs "${opts[@]}"
 }
 
-# Use standard cpio if available
-bsdcpio() {
-    if command -v > /dev/null cpio; then
-        cpio "$@"
-    else
-        command bsdcpio "$@"
-    fi
-}
-
 findmnt() {
     if command -v > /dev/null findmnt; then
         test "$1" = -uno -a "$2" = fstype
