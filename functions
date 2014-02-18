@@ -54,7 +54,3 @@ findmnt() {
         command findmnt "$@"
     fi
 }
-
-/sbin/depmod() (
-    depmod "$@"
-)

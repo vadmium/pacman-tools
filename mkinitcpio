@@ -23,7 +23,8 @@ import shutil
 import deps
 from functools import partial
 from elftools.elf.elffile import ELFFile
-from linux_modules import modinfo
+from linux_modules import modinfo, depmod
+import gzip, lzma, io
 
 def main():
     imageparams = ArgumentParser(add_help=False)
@@ -116,10 +117,12 @@ def generate_image(basedir, args):
     builtinmods = set()
     if args.kernel == "none":
         kver = None
+        modreldir = None
         moddir = None
     else:
         kver = get_kver(basedir, args.kernel)
-        moddir = os.path.join(basedir, "lib", "modules", kver)
+        modreldir = os.path.join("lib", "modules", kver)
+        moddir = os.path.join(basedir, modreldir)
         
         with open(os.path.join(moddir, "modules.builtin"), "rb") as file:
             for name in file:
@@ -197,6 +200,46 @@ def generate_image(basedir, args):
             for (type, hooks) in stage.runhooks.items():
                 hooks = b" ".join(map(os.fsencode, hooks))
                 file.writelines((type, b'="', hooks, b'"\n'))
+        
+        if modreldir is not None:
+            moddest = os.path.join(root, modreldir)
+            if stage.modpaths:
+                msg = "Number of kernel modules to install: {}"
+                print(msg.format(len(stage.modpaths)), file=sys.stderr)
+                decomps = {".gz": gzip, ".xz": lzma}
+                for module in stage.modpaths:
+                    basename = os.path.basename(module)
+                    (stem, ext) = os.path.splitext(basename)
+                    decomp = decomps.get(ext)
+                    if decomp:
+                        basename = stem
+                    else:
+                        decomp = io
+                    dest = os.path.join(moddest, "kernel", stem)
+                    with decomp.open(module, "rb") as src, \
+                    open(dest, "wb") as dest:
+                        shutil.copyfileobj(src, dest)
+                
+                src = os.path.join(moddir, "modules.builtin")
+                dest = os.path.join(moddest, "modules.builtin")
+                shutil.copyfile(src, dest)
+                os.chmod(dest, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
+                
+                src = os.path.join(moddir, "modules.order")
+                dest = os.path.join(moddest, "modules.order")
+                with open(src, "rb") as src, open(dest, "wb") as dest:
+                    for line in src:
+                        line = line.rsplit(b"/", 1)[-1]
+                        dest.writelines((b"kernel/", line))
+                
+                depmod(root, kver)
+                
+                for file in os.listdir(moddest):
+                    if (file.startswith("modules.") and
+                    not file.endswith(".bin") and file != "modules.devname"):
+                        os.remove(os.path.join(moddest, file))
+            else:
+                print("No modules to add to image", file=sys.stderr)
 
 def get_config(file):
     arrays = {"HOOKS", "MODULES", "BINARIES", "FILES"}
