@@ -170,8 +170,15 @@ def generate_image(basedir, args):
             method = getattr(stage, command[0][1:].decode("ascii"))
             method(*(os.fsdecode(arg) for arg in command[1:]))
         
+        extramods = list()
         for mod in config["MODULES"]:
             raise NotImplementedError("Add kernel module {}".format(mod))
+            mod = mod.replace(b"-", b"_")
+            if mod.endswith(b"?"):
+                mod = mod[:-1]
+            if mod not in builtins:
+                extramods.append(mod)
+        
         for exe in config["BINARIES"]:
             raise NotImplementedError("Add executable {}".format(exe))
         for file in config["FILES"]:
@@ -181,6 +188,9 @@ def generate_image(basedir, args):
         
         # Generate shell script for runtime
         with open(os.path.join(root, "config"), "wb") as file:
+            if extramods:
+                file.writelines((b'MODULES="', b" ".join(extramods), '"\n'))
+            
             stage.runhooks[b"CLEANUPHOOKS"].reverse()
             for (type, hooks) in stage.runhooks.items():
                 hooks = b" ".join(map(os.fsencode, hooks))
