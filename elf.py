@@ -17,7 +17,6 @@ from misc import SEEK_CUR
 from collections import defaultdict
 from operator import itemgetter
 from collections import (Sequence, Mapping)
-from shorthand import bitmask
 from elftools.common.utils import (struct_parse, parse_cstring_from_stream)
 from elftools.elf.sections import Symbol
 from elftools.elf.relocation import Relocation
@@ -667,6 +666,9 @@ def format_symbol(sym):
         "{sym.entry[st_info][type]}, "
         "{sym.entry[st_other][visibility]}, "
         "shndx {sym.entry[st_shndx]}".format(**locals()))
+
+def bitmask(bits):
+    return ~(~0 << bits)
 
 if __name__ == "__main__":
     from funcparams import command
