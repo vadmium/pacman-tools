@@ -23,3 +23,9 @@ auto_modules() { :; }
 
 set +o nounset  # Some hooks try to access empty arrays
 build
+
+# $SCRIPT deprecated in original "mkinitcpio" version 0.9, removed in 0.12
+if test -n "${SCRIPT:+set}"; then
+    printf '%s: $SCRIPT deprecated in build()\n' "$HOOK" >&2
+    buildcommand add_runscript "$SCRIPT"
+fi
