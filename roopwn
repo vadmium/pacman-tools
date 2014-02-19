@@ -414,22 +414,34 @@ class Analyser(object):
         return not fail
     
     def read_db(self):
-        with open(os.path.join(self.DB_DIR, self.DEP_DB), "rb") as db:
-            for line in db:
-                line = line.rstrip(b"\n")
-                if line.startswith(b"  "):
-                    deps.add(line[2:])
-                else:
-                    indep = line.rstrip(b":")
-                    deps = self.deps[indep]
+        filename = os.path.join(self.DB_DIR, self.DEP_DB)
+        try:
+            db = open(filename, "rb")
+        except FileNotFoundError as err:
+            print(err, file=stderr)
+        else:
+            with db:
+                for line in db:
+                    line = line.rstrip(b"\n")
+                    if line.startswith(b"  "):
+                        deps.add(line[2:])
+                    else:
+                        indep = line.rstrip(b":")
+                        deps = self.deps[indep]
         
-        with open(os.path.join(self.DB_DIR, self.BROKEN_DB), "rb") as db:
-            for line in db:
-                line = line.rstrip(b"\n")
-                if line.startswith(b"  "):
-                    broken.add(tuple(line[2:].split(b":")))
-                else:
-                    broken = self.broken[line.rstrip(b":")]
+        filename = os.path.join(self.DB_DIR, self.BROKEN_DB)
+        try:
+            db = open(os.path.join(self.DB_DIR, self.BROKEN_DB), "rb")
+        except FileNotFoundError as err:
+            print(err, file=stderr)
+        else:
+            with db:
+                for line in db:
+                    line = line.rstrip(b"\n")
+                    if line.startswith(b"  "):
+                        broken.add(tuple(line[2:].split(b":")))
+                    else:
+                        broken = self.broken[line.rstrip(b":")]
     
     def write_db(self):
         os.makedirs(self.DB_DIR, exist_ok=True)
