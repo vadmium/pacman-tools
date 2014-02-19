@@ -22,6 +22,7 @@ def depmod(basedir, kver):
         modules.dep.bin
         modules.alias.bin
         modules.symbols.bin
+        modules.devname
     """
     
     verify_version(kver)
@@ -216,6 +217,48 @@ def depmod(basedir, kver):
             symbols_index.add(b"symbol:" + name,
                 modname(owner.pathname), owner.order)
     symbols_index.write(dirname, "modules.symbols.bin")
+    
+    print('Writing "modules.devname"', file=sys.stderr)
+    with open(os.path.join(dirname, "modules.devname"), "wb") as outfile:
+        for (i, mod) in enumerate(tlist):
+            print("{}/{}".format(i, len(tlist)), end="\r", file=sys.stderr)
+            devname = None
+            devid = None
+            with mod.elf as modfile:
+                for info in elf.iter_strings(modfile, b".modinfo"):
+                    if not info.startswith(b"alias="):
+                        continue
+                    if info.startswith(b"devname:", 6):
+                        devname = info[6 + 8:]
+                    for type in (b"char", b"block"):
+                        prefix = type + b"-major-"
+                        if not info.startswith(prefix, 6):
+                            continue
+                        majorminor = info[6 + len(prefix):]
+                        try:
+                            (major, minor) = majorminor.split(b"-", 1)
+                            major = int(major)
+                            minor = minor.decode("ascii", "replace")
+                            (minor, _) = slice_int(minor)
+                        except ValueError:
+                            break
+                        devid = "{:c}{}:{}".format(type[0], major, minor)
+                        break
+                    if devname is not None and devid is not None:
+                        break
+            if devname is not None:
+                if devid is None:
+                    msg = ("{}: Ignoring devname "
+                        "without major and minor identifiers")
+                    print(msg.format(mod.pathname), file=sys.stderr)
+                else:
+                    outfile.write(modname(mod.pathname))
+                    outfile.write(b" ")
+                    outfile.write(devname)
+                    outfile.write(b" ")
+                    outfile.write(devid.encode("ascii"))
+                    outfile.write(b"\n")
+    print("{0}/{0}".format(len(tlist)), file=sys.stderr)
 
 # This is based on "modinfo" from "module-init-tools" (apparently GPL 2)
 def modinfo(basedir, kernel, module):
