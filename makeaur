@@ -15,10 +15,10 @@ def main(p="PKGBUILD"):
     if proc.returncode:
         raise SystemExit(proc.returncode)
     pkg = parseaurinfo(aurinfo)
-    with AurTar(pkg[b"pkgname"], pkg[b"pkgver"]) as aurtar:
+    with AurTar(pkg["pkgname"], pkg["pkgver"]) as aurtar:
         aurtar.addfile(".AURINFO", BytesIO(aurinfo), size=len(aurinfo))
         aurtar.addosfile(p, "PKGBUILD")
-        install = pkg.get(b"install")
+        install = pkg.get("install")
         if install:
             aurtar.addosfile(install)
 
@@ -91,7 +91,8 @@ def parseaurinfo(aurinfo):
     parsed = dict()
     for line in aurinfo.splitlines():
         (name, value) = line.split(b" = ", 1)
-        if name in {b"pkgname", b"epoch", b"pkgver", b"pkgrel", b"install"}:
+        name = name.decode("ascii", "replace")
+        if name in {"pkgname", "epoch", "pkgver", "pkgrel", "install"}:
             parsed.setdefault(name, value)
     return parsed
 
