@@ -69,7 +69,8 @@ class AurTar:
         if not target:
             target = name
         with open(name, "rb", buffering=0) as file:
-            tarinfo = self.tar.gettarinfo(fileobj=file)
+            # Explicit dummy name to avoid using file name of bytes
+            tarinfo = self.tar.gettarinfo(fileobj=file, arcname="")
             self.addfile(target, file, tarinfo=tarinfo,
                 uid=0, uname="", gid=0, gname="")
 
