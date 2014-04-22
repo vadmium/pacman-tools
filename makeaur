@@ -45,6 +45,7 @@ class AurTar:
             tarinfo = tarfile.TarInfo(name)
             tarinfo.mtime = self.mtime
             
+            # TODO: Need to also sign file attributes (file modes)
             with subprocess.Popen(("gpg", "--clearsign"),
             stdin=subprocess.PIPE, stdout=subprocess.PIPE) as gpg:
                 (sig, _) = gpg.communicate(self.sums.detach().getvalue())
