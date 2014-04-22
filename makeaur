@@ -100,11 +100,14 @@ def getaurinfo(pkgbuild):
     line = r"""${{{pacman}+printf '{aur} = %s\n' "${{{pacman}[@]}}"}}"""
     for name in (
         "pkgname", "pkgdesc", "url", "license",
+        "depends",  # To be used in AUR 3
         "install",  # Used internally, but not by AUR
     ):
         print(line.format(pacman=name, aur=name), file=script)
     print(r"""${pkgver+printf 'pkgver = %s\n'
         "${epoch+$epoch:}$pkgver${pkgrel+-$pkgrel}"}""", file=script)
+    
+    # AUR < 3 looks for singular "depend" field names instead
     print(line.format(pacman="depends", aur="depend"), file=script)
     
     script = script.getvalue()
