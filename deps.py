@@ -7,7 +7,6 @@ from os.path import (isabs, dirname)
 from os import (readlink, listdir)
 from stat import (S_ISUID, S_ISGID)
 from contextlib import closing
-from shorthand import strip
 from os import path
 import fnmatch
 from collections import defaultdict
@@ -129,18 +128,15 @@ class LibCache(object):
                     if not pattern:
                         raise EOFError("include at EOF")
                     
-                    try:
-                        pattern = strip(pattern, b"/")
-                    except ValueError:
-                        pattern = path.join(dirname(name), pattern)
+                    pattern = path.join(dirname(name), pattern)
                     
                     for inc in self.fs.glob(pattern):
                         self.config_parse(inc)
                     continue
                 
-                try:
-                    word = strip(word, b"/")
-                except ValueError:
+                if word.startswith(b"/"):
+                    word = word[1:]
+                else:
                     # BSD hardware dependent library directive line
                     file.skip_line()
                     continue
