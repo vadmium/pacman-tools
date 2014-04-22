@@ -10,7 +10,10 @@ from stat import S_IRGRP, S_IXGRP, S_IROTH, S_IXOTH
 from hashlib import sha256
 
 def main(p="PKGBUILD"):
-    (aurinfo, _) = getaurinfo(p).communicate()
+    proc = getaurinfo(p)
+    (aurinfo, _) = proc.communicate()
+    if proc.returncode:
+        raise SystemExit(proc.returncode)
     pkg = parseaurinfo(aurinfo)
     with AurTar(pkg[b"pkgname"], pkg[b"pkgver"]) as aurtar:
         aurtar.addfile(".AURINFO", BytesIO(aurinfo), size=len(aurinfo))
