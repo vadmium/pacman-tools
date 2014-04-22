@@ -14,11 +14,10 @@ def main(p="PKGBUILD"):
     pkg = parseaurinfo(aurinfo)
     with AurTar(pkg[b"pkgname"], pkg[b"pkgver"]) as aurtar:
         aurtar.addfile(".AURINFO", BytesIO(aurinfo), size=len(aurinfo))
-        
-        with open(p, "rb", buffering=0) as file:
-            tarinfo = aurtar.tar.gettarinfo(fileobj=file)
-            aurtar.addfile("PKGBUILD", file, tarinfo=tarinfo,
-                uid=0, uname="", gid=0, gname="")
+        aurtar.addosfile(p, "PKGBUILD")
+        install = pkg.get(b"install")
+        if install:
+            aurtar.addosfile(install)
 
 class AurTar:
     def __init__(self, pkgname, pkgver):
@@ -65,6 +64,14 @@ class AurTar:
         hash = sha256()
         self.tar.addfile(tarinfo, HashingReader(fileobj, hash))
         print("{}  {}".format(hash.hexdigest(), name), file=self.sums)
+    
+    def addosfile(self, name, target=None):
+        if not target:
+            target = name
+        with open(name, "rb", buffering=0) as file:
+            tarinfo = self.tar.gettarinfo(fileobj=file)
+            self.addfile(target, file, tarinfo=tarinfo,
+                uid=0, uname="", gid=0, gname="")
 
 class HashingReader(IOBase):
     def __init__(self, file, hash):
@@ -80,7 +87,7 @@ def parseaurinfo(aurinfo):
     parsed = dict()
     for line in aurinfo.splitlines():
         (name, value) = line.split(b" = ", 1)
-        if name in {b"pkgname", b"epoch", b"pkgver", b"pkgrel"}:
+        if name in {b"pkgname", b"epoch", b"pkgver", b"pkgrel", b"install"}:
             parsed.setdefault(name, value)
     return parsed
 
@@ -91,7 +98,10 @@ def getaurinfo(pkgbuild):
         . "$1"
     """)
     line = r"""${{{pacman}+printf '{aur} = %s\n' "${{{pacman}[@]}}"}}"""
-    for name in ("pkgname", "pkgdesc", "url", "license"):
+    for name in (
+        "pkgname", "pkgdesc", "url", "license",
+        "install",  # Used internally, but not by AUR
+    ):
         print(line.format(pacman=name, aur=name), file=script)
     print(r"""${pkgver+printf 'pkgver = %s\n'
         "${epoch+$epoch:}$pkgver${pkgrel+-$pkgrel}"}""", file=script)
