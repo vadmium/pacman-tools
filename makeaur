@@ -18,9 +18,13 @@ def main(p="PKGBUILD"):
     with AurTar(pkg["pkgname"], pkg["pkgver"]) as aurtar:
         aurtar.addfile(".AURINFO", BytesIO(aurinfo), size=len(aurinfo))
         aurtar.addosfile(p, "PKGBUILD")
-        install = pkg.get("install")
-        if install:
-            aurtar.addosfile(install)
+        for field in FILE_FIELDS:
+            file = pkg.get(field)
+            if file:
+                aurtar.addosfile(file)
+        for source in pkg["source"]:
+            if b":" not in source:
+                aurtar.addosfile(source)
 
 class AurTar:
     def __init__(self, pkgname, pkgver):
@@ -88,12 +92,14 @@ class HashingReader(IOBase):
         return data
 
 def parseaurinfo(aurinfo):
-    parsed = dict()
+    parsed = dict((field, list()) for field in ARRAY_FIELDS)
     for line in aurinfo.splitlines():
         (name, value) = line.split(b" = ", 1)
         name = name.decode("ascii", "replace")
-        if name in {"pkgname", "epoch", "pkgver", "pkgrel", "install"}:
+        if name in SINGLE_FIELDS + ("pkgver",):
             parsed.setdefault(name, value)
+        if name in ARRAY_FIELDS:
+            parsed[name].append(value)
     return parsed
 
 def getaurinfo(pkgbuild):
@@ -103,22 +109,23 @@ def getaurinfo(pkgbuild):
         . "$1"
     """)
     line = r"""${{{pacman}+printf '{aur} = %s\n' "${{{pacman}[@]}}"}}"""
-    for name in (
-        "pkgname", "pkgdesc", "url", "license",
-        "depends",  # To be used in AUR 3
-        "install",  # Used internally, but not by AUR
-    ):
+    for name in SINGLE_FIELDS + ARRAY_FIELDS:
         print(line.format(pacman=name, aur=name), file=script)
     print(r"""${pkgver+printf 'pkgver = %s\n'
         "${epoch+$epoch:}$pkgver${pkgrel+-$pkgrel}"}""", file=script)
     
-    # AUR < 3 looks for singular "depend" field names instead
+    # AUR < 3 looks for singular "depend" field names
     print(line.format(pacman="depends", aur="depend"), file=script)
     
     script = script.getvalue()
     proc = ("bash", "-c", script, "--", pkgbuild)
     return subprocess.Popen(proc, stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE)
+
+FILE_FIELDS = ("install", "changelog")  # Used internally, but not by AUR
+SINGLE_FIELDS = (
+    "pkgname", "epoch", "pkgrel", "pkgdesc", "url", "license") + FILE_FIELDS
+ARRAY_FIELDS = ("depends", "source")
 
 if __name__ == "__main__":
     main()
