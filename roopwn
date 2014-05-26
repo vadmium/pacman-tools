@@ -591,9 +591,9 @@ def pkg_parse(name):
 def decompress(file, ext, dir):
     (decomp_file, comp_ext) = splitext(fsdecode(file))
     
-    if not comp_ext.startswith("."):
+    if not comp_ext:
         return file
-    comp_ext = comp_ext[1:]
+    comp_ext = comp_ext[1:]  # Strip full stop prefix
     
     try:
         type = comp_types[comp_ext]
