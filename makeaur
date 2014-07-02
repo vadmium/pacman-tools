@@ -107,6 +107,14 @@ def getaurinfo(pkgbuild):
         "${epoch+$epoch:}$pkgver${pkgrel+-$pkgrel}"}""", file=script)
     print(line.format(pacman="depends", aur="depend"), file=script)
     
+    # AUR 3.2.0 gives the infamous "only lowercase letters are allowed" error
+    # if the "pkgbase" entry is omitted
+    script.write(r"""\
+        if test -n "${pkgbase+set}" -o -n "${pkgname+set}"; then
+            printf "pkgbase = %s\n" "${pkgbase-${pkgname[0]}}"
+        fi
+    """)
+    
     script = script.getvalue()
     proc = ("bash", "-c", script, "--", pkgbuild)
     return subprocess.Popen(proc, stdin=subprocess.DEVNULL,
