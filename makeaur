@@ -10,14 +10,21 @@ from stat import S_IRGRP, S_IXGRP, S_IROTH, S_IXOTH
 from hashlib import sha256
 
 def main(p="PKGBUILD"):
-    (aurinfo, _) = getaurinfo(p).communicate()
+    proc = getaurinfo(p)
+    (aurinfo, _) = proc.communicate()
+    if proc.returncode:
+        raise SystemExit(proc.returncode)
     pkg = parseaurinfo(aurinfo)
-    with AurTar(pkg[b"pkgname"], pkg[b"pkgver"]) as aurtar:
+    with AurTar(pkg["pkgname"], pkg["pkgver"]) as aurtar:
         aurtar.addfile(".AURINFO", BytesIO(aurinfo), size=len(aurinfo))
         aurtar.addosfile(p, "PKGBUILD")
-        install = pkg.get(b"install")
-        if install:
-            aurtar.addosfile(install)
+        for field in FILE_FIELDS:
+            file = pkg.get(field)
+            if file:
+                aurtar.addosfile(file)
+        for source in pkg["source"]:
+            if b":" not in source:
+                aurtar.addosfile(source)
 
 class AurTar:
     def __init__(self, pkgname, pkgver):
@@ -69,7 +76,8 @@ class AurTar:
         if not target:
             target = name
         with open(name, "rb", buffering=0) as file:
-            tarinfo = self.tar.gettarinfo(fileobj=file)
+            # Explicit dummy name to avoid using file name of bytes
+            tarinfo = self.tar.gettarinfo(fileobj=file, arcname="")
             self.addfile(target, file, tarinfo=tarinfo,
                 uid=0, uname="", gid=0, gname="")
 
@@ -84,11 +92,14 @@ class HashingReader(IOBase):
         return data
 
 def parseaurinfo(aurinfo):
-    parsed = dict()
+    parsed = dict((field, list()) for field in ARRAY_FIELDS)
     for line in aurinfo.splitlines():
         (name, value) = line.split(b" = ", 1)
-        if name in {b"pkgname", b"epoch", b"pkgver", b"pkgrel", b"install"}:
+        name = name.decode("ascii", "replace")
+        if name in SINGLE_FIELDS + ("pkgver",):
             parsed.setdefault(name, value)
+        if name in ARRAY_FIELDS:
+            parsed[name].append(value)
     return parsed
 
 def getaurinfo(pkgbuild):
@@ -98,13 +109,12 @@ def getaurinfo(pkgbuild):
         . "$1"
     """)
     line = r"""${{{pacman}+printf '{aur} = %s\n' "${{{pacman}[@]}}"}}"""
-    for name in (
-        "pkgname", "pkgdesc", "url", "license",
-        "install",  # Used internally, but not by AUR
-    ):
+    for name in SINGLE_FIELDS + ARRAY_FIELDS:
         print(line.format(pacman=name, aur=name), file=script)
     print(r"""${pkgver+printf 'pkgver = %s\n'
         "${epoch+$epoch:}$pkgver${pkgrel+-$pkgrel}"}""", file=script)
+    
+    # AUR < 3 looks for singular "depend" field names
     print(line.format(pacman="depends", aur="depend"), file=script)
     
     # AUR 3.2.0 gives the infamous "only lowercase letters are allowed" error
@@ -119,6 +129,11 @@ def getaurinfo(pkgbuild):
     proc = ("bash", "-c", script, "--", pkgbuild)
     return subprocess.Popen(proc, stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE)
+
+FILE_FIELDS = ("install", "changelog")  # Used internally, but not by AUR
+SINGLE_FIELDS = (
+    "pkgname", "epoch", "pkgrel", "pkgdesc", "url", "license") + FILE_FIELDS
+ARRAY_FIELDS = ("depends", "source")
 
 if __name__ == "__main__":
     main()
