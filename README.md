@@ -45,7 +45,7 @@ from the post_install() script of the “linux” package as follows.
 (The install script should be in $DESTDIR/var/spool/pkgbundle/install/linux
 or at
 <https://projects.archlinux.org/svntogit/packages.git/tree/trunk/linux.install?h=packages/linux>.)
-The “depmod” files installed with the Linux package a refer
+The “depmod” files installed with the Linux package refer
 to module file names ending with “.ko”,
 but the actual file names end with “.ko.gz”.
 
