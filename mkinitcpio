@@ -1,0 +1,257 @@
+#! /usr/bin/env python3
+"""
+Arch Linux mkinitcpio command without using chroot to allow for cross-
+installation of 64-bit OS from 32-bit-only environment.
+
+Requirements:
+
+bash: parse mkinitcpio preset file
+"""
+
+import sys
+import os
+import subprocess
+import struct
+from os.path import isabs
+import os.path
+from collections import defaultdict
+from argparse import ArgumentParser
+from stat import S_IRUSR, S_IWUSR, S_IXUSR
+from stat import S_IRGRP, S_IXGRP, S_IROTH, S_IXOTH
+from tempfile import TemporaryDirectory
+
+def main():
+    imageparams = ArgumentParser(add_help=False)
+    group = imageparams.add_argument_group("image settings")
+    group.add_argument("-k", "--kernel")
+    group.add_argument("-c", "--config")
+    group.add_argument("-g", "--generate")
+    group.add_argument("-S", "--skiphooks", action="append", default=list())
+    
+    from inspect import getdoc
+    (summary, body) = splitdoc(getdoc(sys.modules[__name__]))
+    params = ArgumentParser(description=summary, epilog=body,
+        parents=(imageparams,))
+    params.add_argument("basedir")
+    params.add_argument("-p", "--preset")
+    
+    args = params.parse_args()
+    if args.preset is None:
+        generate_image(args.basedir, args)
+        return
+    
+    for image in preset_images(args.basedir, args.preset):
+        msg = "{}: image {!r}".format(args.preset, image["name"])
+        print(msg, file=sys.stderr)
+        imageparams.set_defaults(
+            kernel=image["kver"],
+            config=image["config"],
+            generate=image["file"],
+        )
+        imageargs = imageparams.parse_args(image["options"])
+        generate_image(args.basedir, imageargs)
+
+def preset_images(basedir, preset):
+    if not {os.sep, os.altsep}.intersection(preset):  # No explicit path
+        preset = os.path.join(basedir, "etc", "mkinitcpio.d",
+            preset + ".preset")
+    
+    vars = defaultdict(list)
+    script = r"""\
+        BASEDIR="$2"
+        . source-transplant.sh
+        . "$1"
+        
+        output PRESETS
+        for preset in ALL "${PRESETS[@]}"; do
+            for suffix in kver config image; do
+                output "${preset}_${suffix}"
+            done
+            
+            var="${preset}_options"
+            options=(${!var-})  # Expand any words into array
+            output "$var" options
+        done
+    """
+    print("bash", preset, file=sys.stderr)
+    for (name, value) in parse_bash(script, preset, basedir):
+        vars[name].append(value)
+    vars.default_factory = None
+    
+    for bname in vars[b"PRESETS"]:
+        options = vars.get(bname + b"_options", ())
+        options = (opt.decode("ascii") for opt in options)
+        image = dict(
+            name=bname.decode("ascii"),
+            file=vars[bname + b"_image"][0],
+            options=options,
+        )
+        for key in ("kver", "config"):
+            bkey = key.encode("ascii")
+            value = vars.get(bname + b"_" + bkey)
+            if value is None:
+                value = vars[b"ALL_" + bkey]
+            image[key] = os.fsdecode(value[0])
+        yield image
+
+def generate_image(basedir, args):
+    if args.config is None:
+        configfile = ("etc", "mkinitcpio.conf")
+    else:
+        configfile = (args.config.lstrip("/"),)
+    configfile = os.path.join(basedir, *configfile)
+    config = get_config(configfile)
+    
+    if args.kernel == "none":
+        kver = None
+    else:
+        kver = get_kver(basedir, args.kernel)
+    
+    with TemporaryDirectory(prefix="mkinitcpio.") as root:
+        stage = Stage(root, basedir=basedir, kver=kver)
+
+def get_config(file):
+    arrays = {"HOOKS", "MODULES", "BINARIES", "FILES"}
+    config = dict((array, list()) for array in arrays)
+    script = r"""\
+        . "$1"
+        
+        # Expand words
+        HOOKS=($HOOKS)
+        COMPRESSION_OPTIONS=(${COMPRESSION_OPTIONS-})
+        
+        set -o noglob
+        MODULES=($MODULES)
+        BINARIES=($BINARIES)
+        FILES=($FILES)
+        set +o noglob
+        
+        for var in \
+        MODULES BINARIES FILES HOOKS COMPRESSION COMPRESSION_OPTIONS; do
+            output "$var"
+        done
+    """
+    for (name, value) in parse_bash(script, file):
+        name = name.decode("ascii")
+        if name in arrays:
+            config[name].append(os.fsdecode(value))
+        else:
+            config.setdefault(name, value)
+    return config
+
+class Stage:
+    def __init__(self, root, *, basedir, kver=None):
+        self.basedir = basedir
+        self.root = root
+        self.kver = kver
+        self.base_filesystem()
+    
+    def base_filesystem(self):
+        dirmode = (S_IRUSR | S_IWUSR | S_IXUSR |
+            S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH)
+        
+        dirs = (
+            "new_root", "proc", "sys", "dev", "run", "tmp", "etc", "lib",
+            "bin",
+        )
+        for dir in dirs:
+            dir = os.path.join(self.root, dir)
+            os.mkdir(dir)
+            os.chmod(dir, dirmode)  # No interference from "umask"
+        
+        aliases = (
+            ("usr", os.curdir),
+            ("local", os.curdir),  # A.k.a. /usr/local/
+            ("sbin", "bin"),
+            
+            # Only needed for 64-bit target architecture
+            ("lib64", "lib"),
+        )
+        for (alias, target) in aliases:
+            alias = os.path.join(self.root, alias)
+            os.symlink(target, alias, target_is_directory=True)
+        
+        file = os.path.join(self.root, "VERSION")
+        with open(file, "w", encoding="ascii") as file:
+            file.write("Python mkinitcpio")
+        
+        if self.kver is not None:
+            dir = os.path.join(self.root, "lib")
+            for subdir in ("modules", self.kver, "kernel"):
+                dir = os.path.join(dir, subdir)
+                os.mkdir(dir)
+                os.chmod(dir, dirmode)  # No interference from "umask"
+        
+        target = os.path.join(os.pardir, "proc", "self", "mounts")
+        alias = os.path.join(self.root, "etc", "mtab")
+        os.symlink(target, alias, target_is_directory=False)
+        
+        for etcfile in ("fstab", "initrd-release", "ld.so.conf"):
+            open(os.path.join(self.root, "etc", etcfile), "wb").close()
+
+def parse_bash(script, *args):
+    script = r"""
+        set -o errexit -o nounset
+        
+        output() {
+            set -- "$1" "${2-$1}[@]"
+            ${!2+printf "$1"='%s\0\n' "${!2}"}
+        }
+    """ + script
+    cmd = ("bash", "-c", script, "--") + args
+    try:
+        output = subprocess.check_output(cmd)
+    except subprocess.CalledProcessError as e:
+        raise SystemExit(e.returncode)
+    
+    for item in output.split(b"\0\n")[:-1]:
+        yield item.split(b"=", 1)
+
+def get_kver(basedir, kver):
+    print("kver", kver, file=sys.stderr)
+    if not isabs(kver):
+        return kver
+    
+    # Extract version from boot image; based on
+    # https://github.com/glensc/file/blob/master/magic/Magdir/linux
+    vmlinuz = os.path.join(basedir, kver.lstrip("/"))
+    print("extract version", vmlinuz, file=sys.stderr)
+    with open(vmlinuz, "rb") as file:
+        if random_read(file, 514, 4) != b"HdrS":
+            msg = "Unrecognised Linux boot image: {}".format(vmlinuz)
+            raise ValueError(msg)
+        
+        (value,) = struct.unpack("<H", random_read(file, 510, 2))
+        if value != 0xAA55:
+            msg = "Unrecognised Linux boot image: {}".format(vmlinuz)
+            raise ValueError(msg)
+        
+        (value,) = struct.unpack("<H", random_read(file, 518, 2))
+        if value < 0x200:
+            msg = "Unrecognised Linux boot image: {}".format(vmlinuz)
+            raise ValueError(msg)
+        
+        (offset,) = struct.unpack("<H", random_read(file, 526, 2))
+        file.seek(0x200 + offset)
+        kver = bytearray()
+        while True:
+            c = file.read(1)
+            if not c:
+                msg = "Unterminated version string in {}"
+                raise ValueError(msg.format(vmlinuz))
+            if c in b"\0 ":
+                break
+            kver.extend(c)
+    kver = os.fsdecode(bytes(kver))  # bytearray specifically not accepted
+    print("kver", kver, file=sys.stderr)
+    return kver
+
+def splitdoc(doc):
+    return doc.split("\n\n", 1)
+
+def random_read(file, offset, size):
+    file.seek(offset)
+    return file.read(size)
+
+if __name__ == "__main__":
+    main()
