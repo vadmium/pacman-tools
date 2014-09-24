@@ -1,14 +1,47 @@
 #! /usr/bin/env python3
 
 import subprocess
-from io import StringIO, BytesIO, TextIOWrapper, IOBase
+from io import StringIO, BytesIO, BufferedIOBase
 import tarfile
 from time import time
 from os import fsdecode
 from stat import S_IRUSR, S_IWUSR, S_IXUSR
 from stat import S_IRGRP, S_IXGRP, S_IROTH, S_IXOTH
-from hashlib import sha256
 from contextlib import contextmanager
+import gzip
+import selectors
+
+"""
+The original tar file is signed, and the signature is appended to the tar
+stream, after the original EOF block, as another tar file stream. Equivalent
+commands using GNU "tar" and GNU Privacy Guard:
+
+$ gzip --decompress --stdout < *.src.tar.gz |
+>     gpg --detach-sign > example-1.0-1.src.tar.gz.sig
+$ {
+>     gzip --decompress --stdout &&
+>     tar --create *.sig
+> } < *.src.tar.gz | gzip --stdout > tmp
+$ mv tmp *.src.tar.gz
+
+The appended signature file is ignored by "tar" by default:
+
+$ tar --file *.src.tar.gz --list
+example/
+example/.AURINFO
+example/PKGBUILD
+
+To verify the signature, one needs to know where the original tar file stream
+ends. Typically this is 10240 bytes from the final end of file:
+
+$ tar --file *.src.tar.gz --ignore-zeros --extract --verbose
+example/
+example/.AURINFO
+example/PKGBUILD
+example-1.0-1.src.tar.gz.sig
+$ gzip --decompress --stdout < *.src.tar.gz |
+>     head --bytes=-10240 | gpg --verify *.sig -
+"""
 
 def main(p="PKGBUILD"):
     proc = getaurinfo(p)
@@ -35,29 +68,31 @@ class AurTar:
     
     @contextmanager
     def context(self):
-        with tarfile.open(self.name, "w:gz") as self.tar:
-            self.mtime = time()
-            self.sums = TextIOWrapper(BytesIO())
-            
-            tarinfo = tarfile.TarInfo(self.pkgname)
+        with gzip.open(self.name, "w") as file:
+            gpg = ("gpg", "--detach-sign")
+            sig = BytesIO()
+            gpg = SubprocessWriter(gpg, stdout_writer=sig)
+            with gpg.context():
+                self.tar = TeeWriter(file, gpg)
+                self.tar = tarfile.open(fileobj=self.tar, mode="w|")
+                self.mtime = time()
+                
+                tarinfo = tarfile.TarInfo(self.pkgname)
+                tarinfo.mtime = self.mtime
+                tarinfo.type = tarfile.DIRTYPE
+                tarinfo.mode = (S_IRUSR | S_IWUSR | S_IXUSR |
+                    S_IRGRP | S_IXGRP |  S_IROTH | S_IXOTH)
+                self.tar.addfile(tarinfo)
+                
+                yield
+                self.tar.close()
+            tar = tarfile.open(fileobj=file, mode="w|")
+            tarinfo = tarfile.TarInfo(self.name + ".sig")
             tarinfo.mtime = self.mtime
-            tarinfo.type = tarfile.DIRTYPE
-            tarinfo.mode = (S_IRUSR | S_IWUSR | S_IXUSR |
-                S_IRGRP | S_IXGRP |  S_IROTH | S_IXOTH)
-            self.tar.addfile(tarinfo)
-            
-            yield
-            
-            name = "{}/SHA256SUMS.asc".format(self.pkgname)
-            tarinfo = tarfile.TarInfo(name)
-            tarinfo.mtime = self.mtime
-            
-            # TODO: Need to also sign file attributes (file modes)
-            with subprocess.Popen(("gpg", "--clearsign"),
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE) as gpg:
-                (sig, _) = gpg.communicate(self.sums.detach().getvalue())
-            tarinfo.size = len(sig)
-            self.tar.addfile(tarinfo, BytesIO(sig))
+            tarinfo.size = sig.tell()
+            sig.seek(0)
+            tar.addfile(tarinfo, sig)
+            tar.close()
     
     def addfile(self, name, fileobj, *, tarinfo=None, **attrs):
         if not tarinfo:
@@ -67,9 +102,7 @@ class AurTar:
         tarinfo.name = "{}/{}".format(self.pkgname, name)
         for (key, value) in attrs.items():
             setattr(tarinfo, key, value)
-        hash = sha256()
-        self.tar.addfile(tarinfo, HashingReader(fileobj, hash))
-        print("{}  {}".format(hash.hexdigest(), name), file=self.sums)
+        self.tar.addfile(tarinfo, fileobj)
     
     def addosfile(self, name, target=None):
         if not target:
@@ -79,16 +112,6 @@ class AurTar:
             tarinfo = self.tar.gettarinfo(fileobj=file, arcname="")
             self.addfile(target, file, tarinfo=tarinfo,
                 uid=0, uname="", gid=0, gname="")
-
-class HashingReader(IOBase):
-    def __init__(self, file, hash):
-        self.file = file
-        self.hash = hash
-    
-    def read(self, *pos, **kw):
-        data = self.file.read(*pos, **kw)
-        self.hash.update(data)
-        return data
 
 def parseaurinfo(aurinfo):
     parsed = dict((field, list()) for field in ARRAY_FIELDS)
@@ -133,6 +156,55 @@ FILE_FIELDS = ("install", "changelog")  # Used internally, but not by AUR
 SINGLE_FIELDS = (
     "pkgname", "epoch", "pkgrel", "pkgdesc", "url", "license") + FILE_FIELDS
 ARRAY_FIELDS = ("depends", "source")
+
+class SubprocessWriter(BufferedIOBase):
+    def __init__(self, *pos, stdout_writer, **kw):
+        self.pos = pos
+        self.kw = kw
+        self.out_writer = stdout_writer
+    
+    @contextmanager
+    def context(self):
+        with subprocess.Popen(*self.pos,
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, bufsize=0,
+        **self.kw) as proc, \
+        selectors.DefaultSelector() as self.selector:
+            self.selector.register(proc.stdout, selectors.EVENT_READ,
+                self.read_output)
+            self.selector.register(proc.stdin, selectors.EVENT_WRITE,
+                self.write_input)
+            yield
+            self.selector.unregister(proc.stdin)
+            proc.stdin.close()
+            while self.selector.get_map():
+                for [key, _] in self.selector.select():
+                    key.data(key.fileobj)
+        if proc.returncode:
+            raise SystemExit(proc.returncode)
+    
+    def write(self, b):
+        self.b = memoryview(b)
+        while self.b:
+            for [key, _] in self.selector.select():
+                key.data(key.fileobj)
+    
+    def write_input(self, pipe):
+        done = pipe.write(self.b)
+        self.b = self.b[done:]
+    
+    def read_output(self, pipe):
+        data = pipe.read(0x10000)
+        if not data:
+            self.selector.unregister(pipe)
+            return
+        self.out_writer.write(data)
+
+class TeeWriter(BufferedIOBase):
+    def __init__(self, *outputs):
+        self.outputs = outputs
+    def write(self, b):
+        for output in self.outputs:
+            output.write(b)
 
 if __name__ == "__main__":
     main()
