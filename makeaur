@@ -17,16 +17,16 @@ stream, after the original EOF block, as another tar file stream. Equivalent
 commands using GNU "tar" and GNU Privacy Guard:
 
 $ gzip --decompress --stdout < *.src.tar.gz |
->     gpg --detach-sign > example-1.0-1.src.tar.gz.sig
+>     gpg --detach-sign > example/signature
 $ {
 >     gzip --decompress --stdout &&
->     tar --create *.sig
+>     tar --create */signature
 > } < *.src.tar.gz | gzip --stdout > tmp
 $ mv tmp *.src.tar.gz
 
 The appended signature file is ignored by "tar" by default:
 
-$ tar --file *.src.tar.gz --list
+$ tar --file *.tar.gz --list
 example/
 example/.AURINFO
 example/PKGBUILD
@@ -34,13 +34,13 @@ example/PKGBUILD
 To verify the signature, one needs to know where the original tar file stream
 ends. Typically this is 10240 bytes from the final end of file:
 
-$ tar --file *.src.tar.gz --ignore-zeros --extract --verbose
+$ tar --file *.tar.gz --ignore-zeros --extract --verbose
 example/
 example/.AURINFO
 example/PKGBUILD
-example-1.0-1.src.tar.gz.sig
-$ gzip --decompress --stdout < *.src.tar.gz |
->     head --bytes=-10240 | gpg --verify *.sig -
+example/signature
+$ gzip --decompress --stdout < *.tar.gz |
+>     head --bytes=-10240 | gpg --verify */signature -
 """
 
 def main(p="PKGBUILD"):
@@ -86,13 +86,11 @@ class AurTar:
                 
                 yield
                 self.tar.close()
-            tar = tarfile.open(fileobj=file, mode="w|")
-            tarinfo = tarfile.TarInfo(self.name + ".sig")
-            tarinfo.mtime = self.mtime
-            tarinfo.size = sig.tell()
+            self.tar = tarfile.open(fileobj=file, mode="w|")
+            size = sig.tell()
             sig.seek(0)
-            tar.addfile(tarinfo, sig)
-            tar.close()
+            self.addfile("signature", sig, size=size)
+            self.tar.close()
     
     def addfile(self, name, fileobj, *, tarinfo=None, **attrs):
         if not tarinfo:
