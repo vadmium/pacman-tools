@@ -8,6 +8,7 @@ from os import fsdecode
 from stat import S_IRUSR, S_IWUSR, S_IXUSR
 from stat import S_IRGRP, S_IXGRP, S_IROTH, S_IXOTH
 from hashlib import sha256
+from contextlib import contextmanager
 
 def main(p="PKGBUILD"):
     proc = getaurinfo(p)
@@ -15,7 +16,8 @@ def main(p="PKGBUILD"):
     if proc.returncode:
         raise SystemExit(proc.returncode)
     pkg = parseaurinfo(aurinfo)
-    with AurTar(pkg["pkgname"], pkg["pkgver"]) as aurtar:
+    aurtar = AurTar(pkg["pkgname"], pkg["pkgver"])
+    with aurtar.context():
         aurtar.addfile(".AURINFO", BytesIO(aurinfo), size=len(aurinfo))
         aurtar.addosfile(p, "PKGBUILD")
         for field in FILE_FIELDS:
@@ -29,24 +31,23 @@ def main(p="PKGBUILD"):
 class AurTar:
     def __init__(self, pkgname, pkgver):
         self.pkgname = fsdecode(pkgname)
-        name = "{}-{}.src.tar.gz".format(self.pkgname, fsdecode(pkgver))
-        self.tar = tarfile.open(name, "w:gz")
-        self.mtime = time()
-        self.sums = TextIOWrapper(BytesIO())
-        
-        tarinfo = tarfile.TarInfo(self.pkgname)
-        tarinfo.mtime = self.mtime
-        tarinfo.type = tarfile.DIRTYPE
-        tarinfo.mode = (S_IRUSR | S_IWUSR | S_IXUSR |
-            S_IRGRP | S_IXGRP |  S_IROTH | S_IXOTH)
-        self.tar.addfile(tarinfo)
+        self.name = "{}-{}.src.tar.gz".format(self.pkgname, fsdecode(pkgver))
     
-    def __enter__(self):
-        self.tar.__enter__()
-        return self
-    
-    def __exit__(self, type, exc, tb):
-        if not exc:
+    @contextmanager
+    def context(self):
+        with tarfile.open(self.name, "w:gz") as self.tar:
+            self.mtime = time()
+            self.sums = TextIOWrapper(BytesIO())
+            
+            tarinfo = tarfile.TarInfo(self.pkgname)
+            tarinfo.mtime = self.mtime
+            tarinfo.type = tarfile.DIRTYPE
+            tarinfo.mode = (S_IRUSR | S_IWUSR | S_IXUSR |
+                S_IRGRP | S_IXGRP |  S_IROTH | S_IXOTH)
+            self.tar.addfile(tarinfo)
+            
+            yield
+            
             name = "{}/SHA256SUMS.asc".format(self.pkgname)
             tarinfo = tarfile.TarInfo(name)
             tarinfo.mtime = self.mtime
@@ -57,8 +58,6 @@ class AurTar:
                 (sig, _) = gpg.communicate(self.sums.detach().getvalue())
             tarinfo.size = len(sig)
             self.tar.addfile(tarinfo, BytesIO(sig))
-        
-        return self.tar.__exit__(type, exc, tb)
     
     def addfile(self, name, fileobj, *, tarinfo=None, **attrs):
         if not tarinfo:
