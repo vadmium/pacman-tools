@@ -49,7 +49,7 @@ def main(p="PKGBUILD"):
     if proc.returncode:
         raise SystemExit(proc.returncode)
     pkg = parseaurinfo(aurinfo)
-    aurtar = AurTar(pkg["pkgname"], pkg["pkgver"])
+    aurtar = AurTar(pkg["pkgbase"], pkg["pkgver"])
     with aurtar.context():
         aurtar.addfile(".AURINFO", BytesIO(aurinfo), size=len(aurinfo))
         aurtar.addosfile(p, "PKGBUILD")
@@ -116,7 +116,7 @@ def parseaurinfo(aurinfo):
     for line in aurinfo.splitlines():
         (name, value) = line.split(b" = ", 1)
         name = name.decode("ascii", "replace")
-        if name in SINGLE_FIELDS + ("pkgver",):
+        if name in SINGLE_FIELDS + ("pkgver", "pkgbase"):
             parsed.setdefault(name, value)
         if name in ARRAY_FIELDS:
             parsed[name].append(value)
