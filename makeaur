@@ -10,6 +10,7 @@ from stat import S_IRGRP, S_IXGRP, S_IROTH, S_IXOTH
 from contextlib import contextmanager
 import gzip
 import selectors
+from select import PIPE_BUF
 
 """
 The original tar file is signed, and the signature is appended to the tar
@@ -187,7 +188,8 @@ class SubprocessWriter(BufferedIOBase):
                 key.data(key.fileobj)
     
     def write_input(self, pipe):
-        done = pipe.write(self.b)
+        # TODO: use non-blocking writes to avoid unnecessary chunking
+        done = pipe.write(self.b[:PIPE_BUF])
         self.b = self.b[done:]
     
     def read_output(self, pipe):
