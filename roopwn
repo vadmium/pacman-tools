@@ -69,10 +69,9 @@ Arson
     * Platform: Ruby
     * Presumed dead
 
-Aura
-    * Platform: > 64 MiB (Haskell?)
+Aura: Haskell; > 64 MiB dependencies
 
-aurbuild
+aurbuild: abandoned
     * Platform: Python 2 modules, Pacman, makepkg
     * Inspection: Menu before building each package
     * Permission: Must be invoked as root
@@ -80,6 +79,8 @@ aurbuild
     * Local source repository: /var/tmp/aurbuild/pkgbuilds/<pkgname>/PKGBUILD (sources optionally saved here)
     * UI: Custom Gnu CLI
     * Broken by AUR 2?
+
+aurel: Emacs; does not build packages
 
 aurget
     * Platform: Bash, Pacman, makepkg, Curl
@@ -92,6 +93,8 @@ Aurifere (-git)
     * Platform: Python (3) modules, Git
     * Builds: ~/share/aurifere/<pkgname>/
     * Inspection: Git diffs
+
+aurinstaller: disappeared
 
 Aurora (-hg)
     * Platform: Single Python 3 script, Pacman, makepkg
@@ -106,6 +109,8 @@ aursh (AUR shell)
     * Platform: Python 2
     * Presumed dead
 
+aurpac: source included in AUR tarball
+
 autoaur
     * Platform: Bash
     * Presumed dead
@@ -115,7 +120,7 @@ Bauerbill
     * Platform: Perl (?)
     * Lots of nice ideas
     * No public copies found
-    * http://wayback.archive.org/http://xyne.archlinux.ca/manpages/bauerbill
+    * https://wayback.archive.org/web/20100204133811/http://xyne.archlinux.ca/manpages/bauerbill
 
 Clyde
     * Platform: Lua
@@ -141,7 +146,7 @@ Meric
     * Fork of Packer
     * What was yellow on white is now black on red: marginally better
 
-Owl (-git):
+Owl (owlman):
     * Platform: Posix shell (uses Dash), sudo, Cower, Pacman
     * Looks like it completely wraps Pacman, adds lots of aliases, but with different CLI
     * Extremely brief CLI usage help
@@ -175,10 +180,8 @@ Packer
     * pacman-mirrorlist [installed: newline]
     * Result of installing a package that doesn't exist looks more like a crash than an error message
 
-paktahn
-    * Platform: Common Lisp
-
-pbfetch
+paktahn: Common Lisp
+pbfetch: Bash
 
 pbget
     * Platform: Python 3 script (previously Bash), rsync, python3-aur, pyalpm
@@ -186,11 +189,12 @@ pbget
     * Has various Arch repository architecture names hard-coded
     * Seems to scrape Git web pages with regular expressions!
 
-pkgbuilder
+pkgbuilder: Git repository history noisy and messed up
     * Platform: Python 3 modules, pyalpm, Pacman, makepkg, sudo
     * Builds: current directory, or /tmp/pkgbuilder-$UID/$pkgname/ if -S --sync mode ("pb" wrapper version only seems to do sync mode). Temp directory is kept after successful finish, with PKGBUILD, downloaded sources and build package file only (no src or pkg directory). Like makepkg --clean?
     * Source inspection: no chance!
     * <http://kwpolska.tk/blog/2012/09/19/pkgbuilder-ready-for-prime-time>
+    * Get rid of Requests dependency if possible?
     
     Changes:
         * "Validating installation status... / NOT installed" should exit with failure status
@@ -209,18 +213,11 @@ powaur
     * Broken by AUR interface?
     * /tmp/powaur-$USER/
 
-python3-aur
-    * Library
-
-Slurpy
-    * Platform: Python 2
-    * Presumed dead
-
-Spinach
-
-srcman
-    * Platform: Bash
-    * Languishing: Not sure where the functionality is
+python3-aur: Library
+pywer: Python 3; does not build packages
+Slurpy: Python 2; presumed dead
+Spinach: Bash
+srcman: Bash; languishing: not sure where the functionality is
 
 tusdah
     * Python
@@ -229,10 +226,11 @@ tusdah
     * Maintains a repository built from the AUR
     * Not sure if being developed [untried]
 
-Yaourt
-
-Yogurt
-    * Presumed dead
+trizen: Perl
+wrapaur: Bash
+yaah: Bash
+Yaourt: Bash
+Yogurt: dead
 
 customizepkg
 
