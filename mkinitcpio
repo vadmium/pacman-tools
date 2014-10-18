@@ -5,7 +5,7 @@ installation of 64-bit OS from 32-bit-only environment.
 
 Requirements:
 
-bash: parse mkinitcpio preset file
+bash: parse preset and config files; run hook install scripts
 """
 
 import sys
@@ -19,6 +19,13 @@ from argparse import ArgumentParser
 from stat import S_IRUSR, S_IWUSR, S_IXUSR
 from stat import S_IRGRP, S_IXGRP, S_IROTH, S_IXOTH
 from tempfile import TemporaryDirectory
+import shutil
+import deps
+from functools import partial
+from elftools.elf.elffile import ELFFile
+from linux_modules import modinfo, depmod
+import gzip, lzma, io
+from contextlib import ExitStack
 
 def main():
     imageparams = ArgumentParser(add_help=False)
@@ -102,13 +109,175 @@ def generate_image(basedir, args):
     configfile = os.path.join(basedir, *configfile)
     config = get_config(configfile)
     
+    # The "fsck" build() function accesses file directly from the hosts
+    # system, and shouldn't be critical anyway
+    skiphooks = {"fsck"}
+    for hooks in args.skiphooks:
+        skiphooks.update(hooks.split(","))
+    
+    builtinmods = set()
     if args.kernel == "none":
         kver = None
+        modreldir = None
+        moddir = None
     else:
         kver = get_kver(basedir, args.kernel)
+        modreldir = os.path.join("lib", "modules", kver)
+        moddir = os.path.join(basedir, modreldir)
+        
+        with open(os.path.join(moddir, "modules.builtin"), "rb") as file:
+            for name in file:
+                name = name.rsplit(b"/", 1)[-1]
+                if name.endswith(b".ko"):
+                    name = name[:-3]
+                builtinmods.add(name.replace(b"-", b"_"))
     
     with TemporaryDirectory(prefix="mkinitcpio.") as root:
-        stage = Stage(root, basedir=basedir, kver=kver)
+        stage = Stage(root,
+            basedir=basedir, kver=kver, builtinmods=builtinmods)
+        
+        for hook in config["HOOKS"]:
+            if hook in skiphooks:
+                continue
+            
+            install = os.path.join("initcpio", "install", hook)
+            path = which(basedir, (("etc",), ("usr", "lib")), install)
+            if path is None:
+                raise LookupError("Hook not found: {!r}".format(hook))
+            
+            localdir = os.path.dirname(__file__)
+            print("build", path, file=sys.stderr)
+            
+            # Using concrete file
+            # because $BASH_SOURCE does not seem to work with "bash -c"
+            script = os.path.join(localdir, "hook-build.bash")
+            functions = os.path.join(basedir, "usr", "lib", "initcpio",
+                "functions")
+            cmd = ("bash", script,
+                "ROOT=" + root,
+                "HOOK=" + os.path.join(basedir, path),
+                "KERNELVERSION=" + kver,
+                "FUNCTIONS=" + functions,
+            )
+            if moddir is not None:
+                cmd += ("_d_kmoduledir=" + moddir,)
+            try:
+                subprocess.check_call(cmd)
+            except subprocess.CalledProcessError as e:
+                raise SystemExit(e.returncode)
+        
+        print("Handling build commands", file=sys.stderr)
+        filename = os.path.join(root, "buildcommands")
+        with open(filename, "rb") as file:
+            commands = file.read()
+        os.remove(filename)
+        for command in commands.split(b"\0\n")[:-1]:
+            command = command.split(b"\0 ")
+            method = getattr(stage, command[0][1:].decode("ascii"))
+            method(*(os.fsdecode(arg) for arg in command[1:]))
+        
+        extramods = list()
+        for mod in config["MODULES"]:
+            raise NotImplementedError("Add kernel module {}".format(mod))
+            mod = mod.replace(b"-", b"_")
+            if mod.endswith(b"?"):
+                mod = mod[:-1]
+            if mod not in builtins:
+                extramods.append(mod)
+        
+        for exe in config["BINARIES"]:
+            raise NotImplementedError("Add executable {}".format(exe))
+        for file in config["FILES"]:
+            raise NotImplementedError("Add file {}".format(file))
+        
+        shutil.copyfile(configfile, os.path.join(root, "buildconfig"))
+        
+        # Generate shell script for runtime
+        with open(os.path.join(root, "config"), "wb") as file:
+            if extramods:
+                file.writelines((b'MODULES="', b" ".join(extramods), '"\n'))
+            
+            stage.runhooks[b"CLEANUPHOOKS"].reverse()
+            for (type, hooks) in stage.runhooks.items():
+                hooks = b" ".join(map(os.fsencode, hooks))
+                file.writelines((type, b'="', hooks, b'"\n'))
+        
+        if modreldir is not None:
+            moddest = os.path.join(root, modreldir)
+            if stage.modpaths:
+                msg = "Number of kernel modules to install: {}"
+                print(msg.format(len(stage.modpaths)), file=sys.stderr)
+                decomps = {".gz": gzip, ".xz": lzma}
+                for module in stage.modpaths:
+                    basename = os.path.basename(module)
+                    (stem, ext) = os.path.splitext(basename)
+                    decomp = decomps.get(ext)
+                    if decomp:
+                        basename = stem
+                    else:
+                        decomp = io
+                    dest = os.path.join(moddest, "kernel", stem)
+                    with decomp.open(module, "rb") as src, \
+                    open(dest, "wb") as dest:
+                        shutil.copyfileobj(src, dest)
+                
+                src = os.path.join(moddir, "modules.builtin")
+                dest = os.path.join(moddest, "modules.builtin")
+                shutil.copyfile(src, dest)
+                os.chmod(dest, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
+                
+                src = os.path.join(moddir, "modules.order")
+                dest = os.path.join(moddest, "modules.order")
+                with open(src, "rb") as src, open(dest, "wb") as dest:
+                    for line in src:
+                        line = line.rsplit(b"/", 1)[-1]
+                        dest.writelines((b"kernel/", line))
+                
+                depmod(root, kver)
+                
+                for file in os.listdir(moddest):
+                    if (file.startswith("modules.") and
+                    not file.endswith(".bin") and file != "modules.devname"):
+                        os.remove(os.path.join(moddest, file))
+            else:
+                print("No modules to add to image", file=sys.stderr)
+        
+        image = os.fsdecode(args.generate)
+        print("Generating image: {}".format(image), file=sys.stderr)
+        cmd = ("cpio", "--null", "--create", "--format", "newc")
+        if os.geteuid():
+            cmd += ("--owner", "0:0")
+        with ExitStack() as cleanup:
+            cpio = subprocess.Popen(cmd, cwd=root,
+                stdin=subprocess.PIPE, bufsize=0, stdout=subprocess.PIPE)
+            cleanup.enter_context(cpio)
+            
+            # Close pipeline input before waiting on any subprocess
+            with cpio.stdin:
+                comp = config.get("COMPRESSION", ["gzip"])
+                opts = config.get("COMPRESSION_OPTIONS", list())
+                extraopts = {("xz",): ("--check=crc32",), ("lz4",): ("-l",)}
+                opts.extend(extraopts.get(tuple(comp), ()))
+                comp.extend(opts)
+                with cpio.stdout, \
+                open(os.path.join(basedir, image[1:]), "wb") as out:
+                    comp = subprocess.Popen(comp,
+                        stdin=cpio.stdout, stdout=out)
+                    cleanup.enter_context(comp)
+                
+                tree = os.walk(root, onerror=raiseerror)
+                for (dir, subdirs, files) in tree:
+                    reldir = os.path.relpath(dir, root)
+                    for name in subdirs:
+                        name = os.fsencode(os.path.join(reldir, name))
+                        cpio.stdin.writelines((name, b"\x00"))
+                    for name in files:
+                        name = os.fsencode(os.path.join(reldir, name))
+                        cpio.stdin.writelines((name, b"\x00"))
+        
+        status = max(cpio.returncode, comp.returncode)
+        if status:
+            raise SystemExit(status)
 
 def get_config(file):
     arrays = {"HOOKS", "MODULES", "BINARIES", "FILES"}
@@ -140,10 +309,17 @@ def get_config(file):
     return config
 
 class Stage:
-    def __init__(self, root, *, basedir, kver=None):
+    def __init__(self, root, *, basedir, kver=None, builtinmods=None):
         self.basedir = basedir
         self.root = root
+        self.srcfs = Filesystem(basedir)
+        self.libcache = deps.LibCache(self.srcfs)
+        self.runhooks = dict((type, list()) for
+            type in self.hooktypes.values())
         self.kver = kver
+        self.builtinmods = builtinmods
+        self.addmods = set()
+        self.modpaths = set()
         self.base_filesystem()
     
     def base_filesystem(self):
@@ -188,6 +364,254 @@ class Stage:
         
         for etcfile in ("fstab", "initrd-release", "ld.so.conf"):
             open(os.path.join(self.root, "etc", etcfile), "wb").close()
+    
+    def add_binary(self, src, dest=None):
+        """Add file and shared library dependencies
+        src is a command or absolute file name
+        dest is optionally an absolute file name (or target directory?)
+        """
+        
+        if src.startswith("/"):
+            src = src[1:]
+        else:
+            hiers = ("usr", "local")
+            hlens = reversed(range(len(hiers) + 1))
+            bins = ("sbin", "bin")
+            paths = (hiers[:h] + (b,) for h in hlens for b in bins)
+            path = which(self.basedir, paths, src)
+            if path is None:
+                raise LookupError("Executable not found: {}".format(src))
+            src = path
+        if dest is None:
+            dest = src
+        else:
+            dest = dest[1:]
+        self.recursive_exe(src, dest)
+    
+    def add_file(self, src, dest=None, mode=None):
+        """
+        src is an absolute file name
+        dest is optionally an absolute file name
+        mode, if present, is an octal string, otherwise the source file mode is used
+        """
+        if dest is None:
+            dest = src
+        self.makeparent(dest[1:])
+        src = os.path.join(self.basedir, src[1:])
+        dest = os.path.join(self.root, dest[1:])
+        if mode:
+            shutil.copyfile(src, dest)
+            os.chmod(dest, int(mode, 8))
+        else:
+            shutil.copy(src, dest)
+    
+    def add_symlink(self, alias, target=None):
+        """copy symlink from host if target not given
+        create target directory (mode 755) if necessary"""
+        if target is None:
+            while True:
+                src = os.path.join(self.basedir, alias[1:])
+                dest = os.path.join(self.root, alias[1:])
+                shutil.copy(src, dest, follow_symlinks=True)
+                alias = os.path.join(alias, os.readlink(src))
+                if not os.path.islink(os.path.join(self.basedir, alias[1:])):
+                    break
+                if os.path.exists(os.path.join(self.root, alias[1:])):
+                    break
+        else:
+            self.makeparent(alias[1:])
+            os.symlink(target, os.path.join(self.root, alias[1:]))
+    
+    def add_full_dir(self, dir):
+        dir = dir[1:]
+        self.makeparent(dir)
+        
+        dir = os.path.join(self.basedir, dir)
+        for (srcdir, subdirs, files) in os.walk(dir, onerror=raiseerror):
+            reldir = os.path.relpath(srcdir, self.basedir)
+            stagedir = os.path.join(self.root, reldir)
+            if not os.path.isdir(stagedir):
+                os.mkdir(stagedir)
+            os.chmod(stagedir, S_IRUSR | S_IWUSR | S_IXUSR |
+                S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH)
+            
+            for i in reversed(range(len(subdirs))):
+                subdir = subdirs[i]
+                if subdir.startswith("."):
+                    del subdirs[i]
+                    continue
+                
+                src = os.path.join(srcdir, subdir)
+                if os.path.islink(src):
+                    dest = os.path.join(stagedir, subdir)
+                    shutil.copy(src, dest, follow_symlinks=True)
+            
+            for file in files:
+                if file.startswith("."):
+                    continue
+                
+                src = os.path.join(srcdir, file)
+                dest = os.path.join(stagedir, file)
+                shutil.copy(src, dest, follow_symlinks=True)
+    
+    def add_runscript(self, hook):
+        hook = os.path.basename(hook)
+        hookpath = os.path.join("initcpio", "hooks", hook)
+        script = which(self.basedir, (("etc",), ("usr", "lib")), hookpath)
+        if script is None:
+            msg = "Hook runtime script not found: {}".format(hook)
+            raise LookupError(msg)
+        
+        dest = os.path.join("hooks", hook)
+        self.makeparent(dest)
+        script = os.path.join(self.basedir, script)
+        dest = os.path.join(self.root, dest)
+        shutil.copyfile(script, dest)
+        os.chmod(dest, S_IRUSR | S_IWUSR | S_IXUSR |
+            S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH)
+        
+        getfuncs = r"""
+            set -o errexit -o nounset
+            set -o posix
+            . "$1"
+            compgen -A function
+        """
+        cmd = ("bash", "-c", getfuncs, "--", script)
+        with subprocess.Popen(cmd, stdout=subprocess.PIPE) as bash:
+            for function in bash.stdout:
+                type = self.hooktypes.get(function)
+                if type:
+                    self.runhooks[type].append(hook)
+        if bash.returncode:
+            raise SystemExit(bash.returncode)
+    
+    def add_module(self, module):
+        if self.kver is None:
+            return
+        
+        optional = module.endswith("?")
+        if optional:
+            module = module[:-1]
+        self.recursive_module(module, optional)
+    
+    def recursive_module(self, module, optional=False):
+        module = module.rsplit(".ko", 1)[0]
+        underscores = module.replace("-", "_")
+        if underscores in self.builtinmods or underscores in self.addmods:
+            return
+        
+        try:
+            info = modinfo(self.basedir, self.kver, module)
+        except LookupError:
+            if optional:
+                return
+            raise
+        
+        self.modpaths.add(info["filename"])
+        self.addmods.add(module)
+        
+        for deps in info[b"depends"]:
+            if not deps:
+                continue
+            for dep in deps.split(b","):
+                self.recursive_module(os.fsdecode(dep))
+        
+        missing = False
+        for fw in info[b"firmware"]:
+            fw = os.fsdecode(fw)
+            optusr = (("usr",), ())
+            optupdates = (("updates",), ())
+            paths = (usr + ("lib", "firmware") + updates for
+                usr in optusr for updates in optupdates)
+            fwpath = which(self.basedir, paths, fw)
+            if fwpath is None:
+                missing = True
+                continue
+            self.makeparent(fwpath)
+            dest = os.path.join(self.root, fwpath)
+            shutil.copyfile(os.path.join(self.basedir, fwpath), dest)
+            os.chmod(dest, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
+        if missing:
+            msg = "Module {}: possibly missing firmware".format(module)
+            print(msg, file=sys.stderr)
+        
+        quirks = {
+            "fat": ("nsl_cp437",),
+            "ocfs2": ("configfs",),
+            "libcrc32c": ("crc32c_intel", "crc32c"),
+        }
+        for quirk in quirks.get(module, ()):
+            self.recursive_module(quirk, optional=True)
+    
+    hooktypes = {
+        b"run_earlyhook\n": b"EARLYHOOKS",
+        b"run_hook\n": b"HOOKS",
+        b"run_latehook\n": b"LATEHOOKS",
+        b"run_cleanuphook\n": b"CLEANUPHOOKS",
+    }
+    
+    def recursive_exe(self, src, dest):
+        basesrc = os.path.join(self.basedir, src)
+        self.makeparent(dest)
+        shutil.copy(basesrc, os.path.join(self.root, dest))
+        
+        with open(basesrc, "rb") as file:
+            for dep in self.elfdeps(src, file):
+                dep = os.fsdecode(dep)
+                srcdep = os.path.join(self.basedir, dep)
+                destdep = os.path.join(self.root, dep)
+                
+                if os.path.exists(srcdep) and not os.path.exists(destdep):
+                    if os.path.islink(srcdep):
+                        shutil.copy(srcdep, destdep, follow_symlinks=True)
+                        target = os.readlink(srcdep)
+                        if os.path.isabs(target):
+                            dep = target[1:]
+                        else:
+                            dep = os.path.join(os.path.dirname(dep), target)
+                    self.recursive_exe(dep, dep)
+    
+    def elfdeps(self, filename, file):
+        origin = partial(self.srcfs.get_origin, filename)
+        privileged = deps.is_privileged(os.stat(file.fileno()).st_mode)
+        d = deps.Deps(ELFFile(file), origin, privileged)
+        for interp in d.interps():
+            yield interp
+        for needed in d.needed():
+            if needed["search"]:
+                found = d.search_lib(needed["name"], self.libcache)
+                found = next(found, None)
+                if found is not None:
+                    yield found
+            else:
+                yield needed["name"]
+    
+    def makeparent(self, filename):
+        mode = (S_IRUSR | S_IWUSR | S_IXUSR |
+            S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH)
+        dir = -1
+        while True:
+            dir = filename.find("/", 1 + dir)
+            if dir < 0:
+                break
+            dirname = os.path.join(self.root, filename[:dir])
+            if not os.path.exists(dirname):
+                os.mkdir(dirname)
+                os.chmod(dirname, mode)  # No interference from "umask"
+
+class Filesystem(deps.Filesystem):
+    def __init__(self, basedir):
+        self.basedir = basedir
+    
+    def ospath(self, path):
+        return os.path.join(self.basedir, os.fsdecode(path))
+    
+    def open(self, path):
+        return open(self.ospath(path), "rb")
+    def readlink(self, path):
+        return os.readlink(self.ospath(path))
+    def listdir(self, path):
+        return os.listdir(self.ospath(path))
 
 def parse_bash(script, *args):
     script = r"""
@@ -246,12 +670,23 @@ def get_kver(basedir, kver):
     print("kver", kver, file=sys.stderr)
     return kver
 
+def which(basedir, paths, leaf):
+    for path in paths:
+        path = os.path.join(*(path + (leaf,)))
+        if os.path.exists(os.path.join(basedir, path)):
+            return path
+    else:
+        return None
+
 def splitdoc(doc):
     return doc.split("\n\n", 1)
 
 def random_read(file, offset, size):
     file.seek(offset)
     return file.read(size)
+
+def raiseerror(err):
+    raise err
 
 if __name__ == "__main__":
     main()

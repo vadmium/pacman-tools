@@ -22,14 +22,20 @@ def depmod(basedir, kver):
         modules.dep.bin
         modules.alias.bin
         modules.symbols.bin
+        modules.devname
     """
     
     verify_version(kver)
     
     dirname = os.path.join(basedir, MODULE_DIR, kver)
+    if not os.access(dirname, os.W_OK):
+        msg = "WARNING: {}: No write access!".format(dirname)
+        print(msg, file=sys.stderr)
+    
     print("Scanning modules in", dirname, file=sys.stderr)
     module_files = dict()
-    for (dirpath, dirnames, filenames) in os.walk(dirname, followlinks=True):
+    tree = os.walk(dirname, onerror=raiseerror, followlinks=True)
+    for (dirpath, dirnames, filenames) in tree:
         #~ print("Scanning", dirpath, file=sys.stderr)
         for f in filenames:
             if not f.endswith((".ko", ".ko.gz")):
@@ -211,6 +217,120 @@ def depmod(basedir, kver):
             symbols_index.add(b"symbol:" + name,
                 modname(owner.pathname), owner.order)
     symbols_index.write(dirname, "modules.symbols.bin")
+    
+    print('Writing "modules.devname"', file=sys.stderr)
+    with open(os.path.join(dirname, "modules.devname"), "wb") as outfile:
+        for (i, mod) in enumerate(tlist):
+            print("{}/{}".format(i, len(tlist)), end="\r", file=sys.stderr)
+            devname = None
+            devid = None
+            with mod.elf as modfile:
+                for info in elf.iter_strings(modfile, b".modinfo"):
+                    if not info.startswith(b"alias="):
+                        continue
+                    if info.startswith(b"devname:", 6):
+                        devname = info[6 + 8:]
+                    for type in (b"char", b"block"):
+                        prefix = type + b"-major-"
+                        if not info.startswith(prefix, 6):
+                            continue
+                        majorminor = info[6 + len(prefix):]
+                        try:
+                            (major, minor) = majorminor.split(b"-", 1)
+                            major = int(major)
+                            minor = minor.decode("ascii", "replace")
+                            (minor, _) = slice_int(minor)
+                        except ValueError:
+                            break
+                        devid = "{:c}{}:{}".format(type[0], major, minor)
+                        break
+                    if devname is not None and devid is not None:
+                        break
+            if devname is not None:
+                if devid is None:
+                    msg = ("{}: Ignoring devname "
+                        "without major and minor identifiers")
+                    print(msg.format(mod.pathname), file=sys.stderr)
+                else:
+                    outfile.write(modname(mod.pathname))
+                    outfile.write(b" ")
+                    outfile.write(devname)
+                    outfile.write(b" ")
+                    outfile.write(devid.encode("ascii"))
+                    outfile.write(b"\n")
+    print("{0}/{0}".format(len(tlist)), file=sys.stderr)
+
+# This is based on "modinfo" from "module-init-tools" (apparently GPL 2)
+def modinfo(basedir, kernel, module):
+    if "." not in module and "/" not in module:
+        moddir = os.path.join(basedir, MODULE_DIR, kernel)
+        (file, raw) = gzopen(os.path.join(moddir, "modules.dep"))
+        with raw:
+            for line in file:
+                line = line.strip()
+                if line.startswith(b"#"):
+                    continue
+                try:
+                    (filename, deps) = line.split(b":", 1)
+                except ValueError:
+                    continue
+                filename = os.fsdecode(filename)
+                candidate = basename(filename)
+                
+                if candidate.find(".") != len(module):
+                    continue
+                for (i, c) in enumerate(module):
+                    if c == ":":
+                        continue
+                    cc = candidate[i]
+                    if c == cc:
+                        continue
+                    if c in "_-" and cc in "_-":
+                        continue
+                    break
+                else:
+                    break
+            else:
+                msg = "Could not find module {}".format(module)
+                raise LookupError(msg)
+            
+            if os.path.isabs(filename):
+                module = os.path.join(basedir, filename[1:])
+            else:
+                module = os.path.join(moddir, filename)
+    
+    ret = defaultdict(list, filename=module, params=list())
+    param_indexes = dict()
+    PARAM_TAGS = (b"parm", b"parmtype")
+    with open_elf(module) as modelf:
+        for info in elf.iter_strings(modelf, b".modinfo"):
+            for tag in PARAM_TAGS:
+                if not info.startswith(tag + b"="):
+                    continue
+                param = info[len(tag) + 1:]
+                (param_name, param_info) = param.split(b":", 1)
+                
+                try:
+                    i = param_indexes[param_name]
+                except LookupError:
+                    i = len(ret["params"])
+                    param = dict.fromkeys(PARAM_TAGS)
+                    param.update(name=param_name)
+                    ret["params"].append(param)
+                ret["params"][i][tag] = param_info
+                break
+            
+            else:
+                try:
+                    (tag, eq) = info.split(b"=", 1)
+                except ValueError:
+                    msg = '{}: Missing "=" separator in ".modinfo" tag'
+                    print(msg.format(module), file=sys.stderr)
+                    continue
+                
+                ret[tag].append(eq)
+    
+    return ret
 
 # Part of GPL 2 "depmod" port
 class Module:
@@ -399,6 +519,12 @@ class DataElf:
         pass
 
 def gzopen(path):
+    '''Open a file and decompress with "gzip" if appropriate
+    
+    Returns (file, raw), where
+    "raw" must be closed, and
+    the data can be read from "file"'''
+    
     raw = open(path, "rb")
     try:
         header = raw.read(2)
@@ -418,3 +544,6 @@ def slice_int(s):
     else:
         i = len(s)
     return (int(s[:i]), s[i:])
+
+def raiseerror(err):
+    raise err
