@@ -136,16 +136,18 @@ def getaurinfo(pkgbuild):
         set -o errexit -o nounset
         . "$1"
     """)
-    line = r"""${{{pacman}+printf '{aur} = %s\n' "${{{pacman}[@]}}"}}"""
-    for name in SINGLE_FIELDS + ARRAY_FIELDS:
-        print(line.format(pacman=name, aur=name), file=script)
-    
-    # AUR < 3 looks for singular "depend" field names
-    print(line.format(pacman="depends", aur="depend"), file=script)
-    
-    # AUR 3.2.0 gives the infamous "only lowercase letters are allowed" error
-    # if the "pkgbase" entry is omitted
     script.write(r"""\
+        for name in {} {}; do
+    """.format(" ".join(SINGLE_FIELDS), " ".join(ARRAY_FIELDS)))
+    script.write(r"""\
+            if test -v "$name"; then
+                array="$name[@]"
+                printf "$name"' = %s\n' "${!array}"
+            fi
+        done
+        
+        # AUR 3.2.0 gives the infamous "only lowercase letters are allowed"
+        # error if the "pkgbase" entry is omitted
         if test -n "${pkgbase+set}" -o -n "${pkgname+set}"; then
             printf "pkgbase = %s\n" "${pkgbase-${pkgname[0]}}"
         fi
