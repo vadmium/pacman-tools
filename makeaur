@@ -121,12 +121,15 @@ class AurTar:
 
 def parseaurinfo(aurinfo):
     parsed = dict((field, list()) for field in ARRAY_FIELDS)
+    parsed["pkgname"] = list()
     for line in aurinfo.splitlines():
+        if not line:
+            continue
         (name, value) = line.split(b" = ", 1)
         name = name.decode("ascii", "replace")
         if name in SINGLE_FIELDS or name == "pkgbase":
             parsed.setdefault(name, value)
-        if name in ARRAY_FIELDS:
+        if name in ARRAY_FIELDS or name == "pkgname":
             parsed[name].append(value)
     return parsed
 
@@ -135,6 +138,12 @@ def getaurinfo(pkgbuild):
     script.write(r"""\
         set -o errexit -o nounset
         . "$1"
+        
+        # AUR 3.2.0 gives the infamous "only lowercase letters are allowed"
+        # error if the "pkgbase" entry is omitted
+        if test -v pkgbase -o -v pkgname; then
+            printf 'pkgbase = %s\n' "${pkgbase-${pkgname[0]}}"
+        fi
     """)
     script.write(r"""\
         for name in {} {}; do
@@ -146,10 +155,9 @@ def getaurinfo(pkgbuild):
             fi
         done
         
-        # AUR 3.2.0 gives the infamous "only lowercase letters are allowed"
-        # error if the "pkgbase" entry is omitted
-        if test -n "${pkgbase+set}" -o -n "${pkgname+set}"; then
-            printf "pkgbase = %s\n" "${pkgbase-${pkgname[0]}}"
+        printf '\n'
+        if test -v pkgname; then
+            printf 'pkgname = %s\n' "${pkgname[@]}"
         fi
     """)
     
@@ -160,7 +168,7 @@ def getaurinfo(pkgbuild):
 
 FILE_FIELDS = ("install", "changelog")  # Used internally, but not by AUR
 SINGLE_FIELDS = (
-    "pkgname", "epoch", "pkgver", "pkgrel", "pkgdesc", "url", "license",
+    "epoch", "pkgver", "pkgrel", "pkgdesc", "url", "license",
 ) + FILE_FIELDS
 ARRAY_FIELDS = ("depends", "source")
 
