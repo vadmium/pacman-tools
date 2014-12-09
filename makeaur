@@ -168,9 +168,13 @@ def getaurinfo(pkgbuild):
 
 FILE_FIELDS = ("install", "changelog")  # Used internally, but not by AUR
 SINGLE_FIELDS = (
-    "epoch", "pkgver", "pkgrel", "pkgdesc", "url", "license",
+    "epoch", "pkgver", "pkgrel", "pkgdesc", "url",
 ) + FILE_FIELDS
-ARRAY_FIELDS = ("depends", "source")
+ARRAY_FIELDS = (
+    "license", "groups",
+    "depends", "makedepends", "checkdepends", "optdepends",
+    "conflicts", "provides", "replaces", "source",
+)
 
 class SubprocessWriter(BufferedIOBase):
     def __init__(self, *pos, stdout_writer, **kw):
