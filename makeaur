@@ -50,7 +50,7 @@ def main(p="PKGBUILD"):
     if proc.returncode:
         raise SystemExit(proc.returncode)
     pkg = parseaurinfo(aurinfo)
-    aurtar = AurTar(pkg["pkgbase"], pkg["pkgver"])
+    aurtar = AurTar(pkg)
     with aurtar.context():
         aurtar.addfile(".AURINFO", BytesIO(aurinfo), size=len(aurinfo))
         aurtar.addosfile(p, "PKGBUILD")
@@ -63,9 +63,16 @@ def main(p="PKGBUILD"):
                 aurtar.addosfile(source)
 
 class AurTar:
-    def __init__(self, pkgname, pkgver):
-        self.pkgname = fsdecode(pkgname)
-        self.name = "{}-{}.src.tar.gz".format(self.pkgname, fsdecode(pkgver))
+    def __init__(self, pkg):
+        self.pkgname = fsdecode(pkg["pkgbase"])
+        version = fsdecode(pkg["pkgver"])
+        epoch = pkg.get("epoch")
+        if epoch is not None:
+            version = "{}:{}".format(fsdecode(epoch), version)
+        pkgrel = pkg.get("pkgrel")
+        if pkgrel is not None:
+            version += "-" + fsdecode(pkgrel)
+        self.name = "{}-{}.src.tar.gz".format(self.pkgname, version)
     
     @contextmanager
     def context(self):
@@ -117,7 +124,7 @@ def parseaurinfo(aurinfo):
     for line in aurinfo.splitlines():
         (name, value) = line.split(b" = ", 1)
         name = name.decode("ascii", "replace")
-        if name in SINGLE_FIELDS + ("pkgver", "pkgbase"):
+        if name in SINGLE_FIELDS or name == "pkgbase":
             parsed.setdefault(name, value)
         if name in ARRAY_FIELDS:
             parsed[name].append(value)
@@ -132,8 +139,6 @@ def getaurinfo(pkgbuild):
     line = r"""${{{pacman}+printf '{aur} = %s\n' "${{{pacman}[@]}}"}}"""
     for name in SINGLE_FIELDS + ARRAY_FIELDS:
         print(line.format(pacman=name, aur=name), file=script)
-    print(r"""${pkgver+printf 'pkgver = %s\n'
-        "${epoch+$epoch:}$pkgver${pkgrel+-$pkgrel}"}""", file=script)
     
     # AUR < 3 looks for singular "depend" field names
     print(line.format(pacman="depends", aur="depend"), file=script)
@@ -153,7 +158,8 @@ def getaurinfo(pkgbuild):
 
 FILE_FIELDS = ("install", "changelog")  # Used internally, but not by AUR
 SINGLE_FIELDS = (
-    "pkgname", "epoch", "pkgrel", "pkgdesc", "url", "license") + FILE_FIELDS
+    "pkgname", "epoch", "pkgver", "pkgrel", "pkgdesc", "url", "license",
+) + FILE_FIELDS
 ARRAY_FIELDS = ("depends", "source")
 
 class SubprocessWriter(BufferedIOBase):
