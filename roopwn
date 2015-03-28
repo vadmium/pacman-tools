@@ -531,7 +531,7 @@ Options passed to Pacman:
         realdir = partial(PackagesFs.realdir, OsFilesystem())
         proc = [pacman] + "--query --list --quiet --".split() + pkg_names
         with command_pipe(proc, stdout=subprocess.PIPE,
-        stderr=command_pipe.NULL, check=False, trace=verbose) as proc:
+        stderr=subprocess.DEVNULL, check=False, trace=verbose) as proc:
             for file in proc.stdout:
                 (file,) = file.splitlines()
                 file = realdir(strip_root(file))
@@ -996,43 +996,21 @@ class IgnoreSigs(object):
             signal(SIGQUIT, self.quit)
 
 class command_pipe(subprocess.Popen):
-    def __init__(self,
-    proc_args, *popen_args,
-    bufsize=-1, stderr=None, trace=False, check=True, **kw):
+    def __init__(self, *pos, bufsize=-1, trace=False, check=True, **kw):
         self.trace = trace
         self.check = check
-        
-        if stderr is self.NULL:
-            null = open(devnull, "w")
-        else:
-            null = None
-        
-        try:
-            if stderr is self.NULL:
-                stderr = null
-            
-            if self.trace:
-                self.arg0 = proc_args[0]
-                command_trace(proc_args)
-            
-            subprocess.Popen.__init__(self,
-                proc_args, *popen_args,
-                bufsize=bufsize, stderr=stderr, **kw)
-        
-        finally:
-            if null:
-                null.close()
+        super().__init__(*pos, bufsize=bufsize, **kw)
+        if self.trace:
+            command_trace(self.args)
     
     def wait(self, *args, **kw):
-        returncode = subprocess.Popen.wait(self, *args, **kw)
-        if self.check and returncode:
+        super().wait(*args, **kw)
+        if self.check and self.returncode:
             if self.trace:
-                print("Command", repr(self.arg0),
-                    "failed with exit status", returncode, file=stderr)
-            raise SystemExit(returncode)
-        return returncode
-    
-    NULL = object()
+                print("Command", repr(self.args[0]),
+                    "failed with exit status", self.returncode, file=stderr)
+            raise SystemExit(self.returncode)
+        return self.returncode
 
 def command_trace(args):
     print("+", " ".join(fsdecode(arg) for arg in args), file=stderr)
