@@ -341,7 +341,6 @@ Signed source packages:
 """
 
 from sys import argv
-from subprocess import (check_call, Popen, CalledProcessError)
 import subprocess
 from sys import stderr
 from posixpath import basename
@@ -963,23 +962,15 @@ comp_types = dict(
     xz=dict(comp=LZMAFile), txz=dict(comp=LZMAFile, ext="tar"),
 )
 
-def command(proc_args, *popen_args, trace=False, **kw):
+def command(*pos, **kw):
     """
     Similar to Posix's system() function. It should ignore interrupt and quit
     signals that would normally also be sent to the child process
     """
     
-    if trace:
-        command_trace(proc_args)
-    
-    try:
-        with IgnoreSigs() as sigs:
-            check_call(proc_args, *popen_args, preexec_fn=sigs.__exit__,
-                **kw)
-    except CalledProcessError as e:
-        if trace:
-            print(e, file=stderr)
-        raise SystemExit(e.returncode)
+    with IgnoreSigs() as sigs, \
+            command_pipe(*pos, check=True, preexec_fn=sigs.__exit__, **kw):
+        pass
 
 class IgnoreSigs(object):
     # Sounds like a recipe for a race condition, but there doesn't seem to be
@@ -1003,7 +994,7 @@ class IgnoreSigs(object):
         if self.quit is not None:
             signal(SIGQUIT, self.quit)
 
-class command_pipe(Popen):
+class command_pipe(subprocess.Popen):
     def __init__(self,
     proc_args, *popen_args,
     bufsize=-1, stderr=None, trace=False, check=True, **kw):
@@ -1023,7 +1014,7 @@ class command_pipe(Popen):
                 self.arg0 = proc_args[0]
                 command_trace(proc_args)
             
-            Popen.__init__(self,
+            subprocess.Popen.__init__(self,
                 proc_args, *popen_args,
                 bufsize=bufsize, stderr=stderr, **kw)
         
@@ -1032,7 +1023,7 @@ class command_pipe(Popen):
                 null.close()
     
     def wait(self, *args, **kw):
-        returncode = Popen.wait(self, *args, **kw)
+        returncode = subprocess.Popen.wait(self, *args, **kw)
         if self.check and returncode:
             if self.trace:
                 print("Command", repr(self.arg0),
