@@ -965,18 +965,19 @@ comp_types = dict(
 def command(*pos, **kw):
     """
     Similar to Posix's system() function. It should ignore interrupt and quit
-    signals that would normally also be sent to the child process
+    signals in the parent while waiting. These signals are normally sent to
+    both the parent and child.
     """
     
+    # There is a small window where the signals will be completely
+    # lost, before forking the child. But there doesn't seem to be
+    # a way to avoid it. Gnu C library:
+    # http://sourceware.org/git?p=glibc.git;a=blob;f=sysdeps/posix/system.c
     with IgnoreSigs() as sigs, \
             command_pipe(*pos, check=True, preexec_fn=sigs.__exit__, **kw):
         pass
 
 class IgnoreSigs(object):
-    # Sounds like a recipe for a race condition, but there doesn't seem to be
-    # a way to avoid it. Gnu C library:
-    # http://sourceware.org/git?p=glibc.git;a=blob;f=sysdeps/posix/system.c
-    
     def __enter__(self):
         self.int = None
         self.quit = None
