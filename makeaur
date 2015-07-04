@@ -56,7 +56,7 @@ def main(p="PKGBUILD"):
     metadata = parseaurinfo(aurinfo)
     package = PackageSource()
     with package.context():
-        package.addfile(".AURINFO", BytesIO(aurinfo))
+        package.addfile(".SRCINFO", BytesIO(aurinfo))
         package.addosfile(p, "PKGBUILD")
         for field in FILE_FIELDS:
             file = metadata.get(field)
