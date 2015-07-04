@@ -115,6 +115,7 @@ def parseaurinfo(aurinfo):
     for line in aurinfo.splitlines():
         if not line:
             continue
+        line = line.lstrip()
         (name, value) = line.split(b" = ", 1)
         name = name.decode("ascii", "replace")
         if name in SINGLE_FIELDS or name == "pkgbase":
@@ -141,7 +142,7 @@ def getaurinfo(pkgbuild):
     script.write(r"""\
             if test -v "$name"; then
                 array="$name[@]"
-                printf "$name"' = %s\n' "${!array}"
+                printf "\t$name"' = %s\n' "${!array}"
             fi
         done
         
