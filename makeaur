@@ -2,46 +2,50 @@
 
 import subprocess
 from io import StringIO, BytesIO, BufferedIOBase
-import tarfile
-from time import time
-from os import fsdecode
-from stat import S_IRUSR, S_IWUSR, S_IXUSR
-from stat import S_IRGRP, S_IXGRP, S_IROTH, S_IXOTH
-from contextlib import contextmanager
-import gzip
+from os import fsencode
+from contextlib import contextmanager, ExitStack
 import selectors
 from select import PIPE_BUF
+from shutil import copyfileobj
+from hashlib import sha256
 
 """
-The original tar file is signed, and the signature is appended to the tar
-stream, after the original EOF block, as another tar file stream. Equivalent
-commands using GNU "tar" and GNU Privacy Guard:
+# Signature #
 
-$ gzip --decompress --stdout < *.src.tar.gz |
->     gpg --detach-sign > example/signature
-$ {
->     gzip --decompress --stdout &&
->     tar --create */signature
-> } < *.src.tar.gz | gzip --stdout > tmp
-$ mv tmp *.src.tar.gz
+A description of the file tree is generated in the "mtree" format, and signed
+with PGP. Each file entry should include the following keyword fields:
 
-The appended signature file is ignored by "tar" by default:
+* type=file/dir/link
+* sha256digest=[Only for type=file]
+* mode=644/755 [Only for type=file; bits other than u=x are ignored]
+* link=[Only for type=link]
 
-$ tar --file *.tar.gz --list
-example/
-example/.AURINFO
-example/PKGBUILD
+To generate the "mtree" file and signature, commands like the following could
+be used in many cases, using "libarchive" and Gnu Privacy Guard:
 
-To verify the signature, one needs to know where the original tar file stream
-ends. Typically this is 10240 bytes from the final end of file:
+$ git ls-files |
+> bsdtar -c --files-from /dev/stdin --no-recursion \
+>     --exclude mtree --exclude mtree.sig \
+>     --format mtree --file mtree --options '!all,type,sha256,mode,link'
+$ gpg --detach-sign mtree
 
-$ tar --file *.tar.gz --ignore-zeros --extract --verbose
-example/
-example/.AURINFO
-example/PKGBUILD
-example/signature
-$ gzip --decompress --stdout < *.tar.gz |
->     head --bytes=-10240 | gpg --verify */signature -
+The "mtree" file should include the following two entries, to make it easier
+to verify:
+
+mtree ignore optional
+mtree.sig ignore optional
+
+When verifying the "mtree" data, files that are missing from the "mtree" data
+(other than "mtree" and "mtree.sig" themselves) should trigger a verification
+failure. Depending on the "mtree" format, file system, etc, commands like the
+following could be used:
+
+$ gpg --verify mtree.sig
+$ mtree < mtree
+
+Multiple signatures can be appended with commands like:
+
+$ gpg --detach-sign < mtree >> mtree.sig
 """
 
 def main(p="PKGBUILD"):
@@ -49,75 +53,61 @@ def main(p="PKGBUILD"):
     (aurinfo, _) = proc.communicate()
     if proc.returncode:
         raise SystemExit(proc.returncode)
-    pkg = parseaurinfo(aurinfo)
-    aurtar = AurTar(pkg)
-    with aurtar.context():
-        aurtar.addfile(".AURINFO", BytesIO(aurinfo), size=len(aurinfo))
-        aurtar.addosfile(p, "PKGBUILD")
+    metadata = parseaurinfo(aurinfo)
+    package = PackageSource()
+    with package.context():
+        package.addfile(".AURINFO", BytesIO(aurinfo))
+        package.addosfile(p, "PKGBUILD")
         for field in FILE_FIELDS:
-            file = pkg.get(field)
+            file = metadata.get(field)
             if file:
-                aurtar.addosfile(file)
-        for source in pkg["source"]:
+                package.addosfile(file)
+        for source in metadata["source"]:
             if b":" not in source:
-                aurtar.addosfile(source)
+                package.addosfile(source)
 
-class AurTar:
-    def __init__(self, pkg):
-        self.pkgname = fsdecode(pkg["pkgbase"])
-        version = fsdecode(pkg["pkgver"])
-        epoch = pkg.get("epoch")
-        if epoch is not None:
-            version = "{}:{}".format(fsdecode(epoch), version)
-        pkgrel = pkg.get("pkgrel")
-        if pkgrel is not None:
-            version += "-" + fsdecode(pkgrel)
-        self.name = "{}-{}.src.tar.gz".format(self.pkgname, version)
-    
+class PackageSource:
     @contextmanager
     def context(self):
-        with gzip.open(self.name, "w") as file:
+        with ExitStack() as cleanup:
+            mtree_save = open("mtree", "wb")
+            mtree_save = cleanup.enter_context(mtree_save)
             gpg = ("gpg", "--detach-sign")
-            sig = BytesIO()
-            gpg = SubprocessWriter(gpg, stdout_writer=sig)
-            with gpg.context():
-                self.tar = TeeWriter(file, gpg)
-                self.tar = tarfile.open(fileobj=self.tar, mode="w|")
-                self.mtime = time()
-                
-                tarinfo = tarfile.TarInfo(self.pkgname)
-                tarinfo.mtime = self.mtime
-                tarinfo.type = tarfile.DIRTYPE
-                tarinfo.mode = (S_IRUSR | S_IWUSR | S_IXUSR |
-                    S_IRGRP | S_IXGRP |  S_IROTH | S_IXOTH)
-                self.tar.addfile(tarinfo)
-                
-                yield
-                self.tar.close()
-            self.tar = tarfile.open(fileobj=file, mode="w|")
-            size = sig.tell()
-            sig.seek(0)
-            self.addfile("signature", sig, size=size)
-            self.tar.close()
+            with open("mtree.sig", "wb") as sig:
+                gpg = cleanup.enter_context(subprocess.Popen(gpg,
+                    stdin=subprocess.PIPE, bufsize=-1, stdout=sig))
+            mtree_sign = gpg.stdin
+            self.mtree = Writer(mtree_save.write, mtree_sign.write)
+            
+            self.mtree.write(
+                # Relative path format more compatible with "mtree" command
+                b"#mtree v1.0\n"
+                b". type=dir\n"
+                b"mtree ignore optional\n"
+                b"mtree.sig ignore optional\n"
+                b"/set type=file mode=644\n"
+            )
+            yield
+            self.mtree.write(b"..\n")
     
-    def addfile(self, name, fileobj, *, tarinfo=None, **attrs):
-        if not tarinfo:
-            tarinfo = tarfile.TarInfo()
-            tarinfo.mtime = self.mtime  # Default value
-        name = fsdecode(name)
-        tarinfo.name = "{}/{}".format(self.pkgname, name)
-        for (key, value) in attrs.items():
-            setattr(tarinfo, key, value)
-        self.tar.addfile(tarinfo, fileobj)
+    def addfile(self, name, fileobj):
+        with open(name, "wb") as out:
+            self.add_fileobj(name, fileobj, out.write)
     
     def addosfile(self, name, target=None):
         if not target:
             target = name
-        with open(name, "rb", buffering=0) as file:
-            # Explicit dummy name to avoid using file name of bytes
-            tarinfo = self.tar.gettarinfo(fileobj=file, arcname="")
-            self.addfile(target, file, tarinfo=tarinfo,
-                uid=0, uname="", gid=0, gname="")
+        with open(name, "rb") as file:
+            self.add_fileobj(name, file)
+    
+    def add_fileobj(self, name, fileobj, *write):
+        self.mtree.write(fsencode(name))
+        hash = sha256()
+        write += (hash.update,)
+        copyfileobj(fileobj, Writer(*write))
+        # Lowercase more compatible with "mtree" command
+        line = " sha256digest={}\n".format(hash.hexdigest().lower())
+        self.mtree.write(line.encode("ascii"))
 
 def parseaurinfo(aurinfo):
     parsed = dict((field, list()) for field in ARRAY_FIELDS)
@@ -219,12 +209,12 @@ class SubprocessWriter(BufferedIOBase):
             return
         self.out_writer.write(data)
 
-class TeeWriter(BufferedIOBase):
-    def __init__(self, *outputs):
-        self.outputs = outputs
+class Writer(BufferedIOBase):
+    def __init__(self, *write):
+        self.writes = write
     def write(self, b):
-        for output in self.outputs:
-            output.write(b)
+        for write in self.writes:
+            write(b)
 
 if __name__ == "__main__":
     main()
