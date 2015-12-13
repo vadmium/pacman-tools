@@ -386,6 +386,7 @@ class StringTable(object):
         return parse_cstring_from_stream(self.stream, self.offset + offset)
 
 def main(elf, relocs=False, dyn_syms=False, lookup=()):
+    '''Dump information from an ELF file'''
     from elftools.elf.elffile import ELFFile
     
     with open(elf, "rb") as elf:
@@ -442,21 +443,20 @@ def dump_segments(elf, *, relocs, dyn_syms, lookup):
     if relocs:
         print("\nRelocation entries:")
         symtab = dynamic.symbol_table()
-        found = False
+        count = 0
         for rel in dynamic.rel_entries():
-            found = True
+            count += 1
             if rel["r_info_sym"]:
                 sym = symtab[rel["r_info_sym"]]
                 print("  {}".format(format_symbol(sym)))
             else:
                 print("  Sym UNDEF")
-        if not found:
-            print("  (None)")
+        print("Total entries: {}".format(count))
     
     if dyn_syms:
-        print("\nSymbols from hash table:")
         symtab = dynamic.symbol_table()
         hash = dynamic.symbol_hash(symtab)
+        print("\nSymbols from hash table ({}):".format(type(hash).__name__))
         for sym in hash:
             print("  {}".format(format_symbol(sym)))
     
