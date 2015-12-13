@@ -495,5 +495,5 @@ def bitmask(bits):
     return ~(~0 << bits)
 
 if __name__ == "__main__":
-    from funcparams import command
-    command(main)
+    from clifunc import run
+    run(main)
