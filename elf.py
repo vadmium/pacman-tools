@@ -18,6 +18,7 @@ from elftools.common.utils import (struct_parse, parse_cstring_from_stream)
 from elftools.elf.sections import Symbol
 from elftools.elf.relocation import Relocation
 from elftools.elf.descriptions import describe_dyn_tag
+from elftools.elf.gnuversions import Version, VersionAuxiliary
 
 class Elf:
     EI_NIDENT = 16
@@ -229,6 +230,50 @@ class Dynamic(object):
             return Class(self.elf, hash, symtab)
         return dict()
     
+    # ELF symbol versioning: https://akkadia.org/drepper/symbol-versioning
+    
+    def versions_needed(self):
+        [offset] = self.entries["DT_VERNEED"]
+        offset = self.segments.map(offset)
+        [num] = self.entries["DT_VERNEEDNUM"]
+        Elf_Verneed = self.elf.structs.Elf_Verneed
+        for _ in range(num):
+            entry = struct_parse(Elf_Verneed, self.elf.stream, offset)
+            aux_offset = offset + entry["vn_aux"]
+            versions = self._file_versions(aux_offset, entry["vn_cnt"])
+            yield (self.strtab[entry["vn_file"]], versions)
+            offset += entry["vn_next"]
+    
+    def _file_versions(self, offset, cnt):
+        Elf_Vernaux = self.elf.structs.Elf_Vernaux
+        for _ in range(cnt):
+            entry = struct_parse(Elf_Vernaux, self.elf.stream, offset)
+            yield VersionAuxiliary(entry, self.strtab[entry["vna_name"]])
+            offset += entry["vna_next"]
+    
+    def version_definitions(self):
+        offset = self.entries["DT_VERDEF"]
+        if not offset:
+            return
+        [offset] = offset
+        offset = self.segments.map(offset)
+        [num] = self.entries["DT_VERDEFNUM"]
+        Elf_Verdef = self.elf.structs.Elf_Verdef
+        for _ in range(num):
+            entry = struct_parse(Elf_Verdef, self.elf.stream, offset)
+            aux_offset = offset + entry["vd_aux"]
+            names = self._version_names(aux_offset, entry["vd_cnt"])
+            definition = Version(entry, next(names))
+            yield (definition, names)
+            offset += entry["vd_next"]
+    
+    def _version_names(self, offset, cnt):
+        Elf_Verdaux = self.elf.structs.Elf_Verdaux
+        for _ in range(cnt):
+            entry = struct_parse(Elf_Verdaux, self.elf.stream, offset)
+            yield self.strtab[entry["vda_name"]]
+            offset += entry["vda_next"]
+    
     tag_attrs = (
         ("rpath", "DT_RPATH"), ("runpath", "DT_RUNPATH"),
         ("soname", "DT_SONAME"), ("needed", "DT_NEEDED"),
@@ -385,7 +430,7 @@ class StringTable(object):
     def __getitem__(self, offset):
         return parse_cstring_from_stream(self.stream, self.offset + offset)
 
-def main(elf, relocs=False, dyn_syms=False, lookup=()):
+def main(elf, relocs=False, dyn_syms=False, vers=False, lookup=()):
     '''Dump information from an ELF file'''
     from elftools.elf.elffile import ELFFile
     
@@ -398,13 +443,14 @@ def main(elf, relocs=False, dyn_syms=False, lookup=()):
         for attr in ("e_type", "e_machine", "e_version", "e_flags"):
             print("  {}: {}".format(attr, elf[attr]))
         
-        dump_segments(elf, relocs=relocs, dyn_syms=dyn_syms, lookup=lookup)
+        dump_segments(elf,
+            relocs=relocs, dyn_syms=dyn_syms, vers=vers, lookup=lookup)
         
         print("\nSections:")
         for sect in elf.iter_sections():
             print("  {!r}: {}".format(sect.name, sect["sh_type"]))
 
-def dump_segments(elf, *, relocs, dyn_syms, lookup):
+def dump_segments(elf, *, relocs, dyn_syms, vers, lookup):
     from os import fsencode
     
     segments = Segments(elf)
@@ -459,6 +505,34 @@ def dump_segments(elf, *, relocs, dyn_syms, lookup):
         print("\nSymbols from hash table ({}):".format(type(hash).__name__))
         for sym in hash:
             print("  {}".format(format_symbol(sym)))
+    
+    if vers:
+        print("\nDependency version requirements:")
+        for [file, versions] in dynamic.versions_needed():
+            print("  {!r}:".format(file))
+            for version in versions:
+                if version["vna_flags"]:
+                    flags = ", flags {}".format(version["vna_flags"])
+                else:
+                    flags = ""
+                msg = "    {!r}: index {}{}"
+                print(msg.format(version.name, version["vna_other"], flags))
+        
+        print("\nVersion definitions:")
+        found = False
+        for [definition, predecessors] in dynamic.version_definitions():
+            found = True
+            if definition["vd_flags"]:
+                flags = ", flags {}".format(definition["vd_flags"])
+            else:
+                flags = ""
+            predecessors = " ".join(map(repr, predecessors))
+            if predecessors:
+                predecessors = ", predecessors " + predecessors
+            print("  {!r}: index {}{}{}".format(definition.name,
+                definition["vd_ndx"], flags, predecessors))
+        if not found:
+            print("  (None)")
     
     if lookup:
         print("\nSymbol lookup results:")
