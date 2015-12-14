@@ -8,8 +8,6 @@
         --print option does not ask questions about resolving providers but 
         --downloadonly does, and the answer may not be what --print assumes;
         thus it may indicate packages that weren't actually downloaded.
-    * /lib/libc.so.6: version `GLIBC_2.16' not found (required by git-upload-
-        pack)
     * handle the dependencies of the package that create the /usr/lib/ or
         /lib/ symlink, or any symlink
     * need to notify about conflicts before downloading the (wrong) package
@@ -651,7 +649,7 @@ class Analyser(object):
                         fsdecode(filename), fsdecode(interp)), file=stderr)
                 fail |= unknown
         
-        needed_paths = list()
+        needed_paths = dict()
         needed_missing = False
         for needed in deps.needed():
             if needed["search"]:
@@ -679,7 +677,7 @@ class Analyser(object):
             
             found = self.fs.realdir(found)
             self.deps[found].add(filename)
-            needed_paths.append(found)
+            needed_paths[needed["raw_name"]] = found
             if self.verbose:
                 if found == needed["raw_name"]:
                     print("{}: needed -> {}".format(
@@ -691,6 +689,22 @@ class Analyser(object):
         
         known_broken.clear()
         known_broken.update(now_broken)
+        
+        for [nfilename, nversions] in dynamic.versions_needed():
+            nversions = set(v.name for v in nversions)
+            path = needed_paths.get(nfilename)
+            if path is None:
+                continue
+            with closing(self.fs.open(path)) as nfile:
+                ddynamic = elf.Segments(ELFFile(nfile)).read_dynamic()
+                for [version, _] in ddynamic.version_definitions():
+                    nversions.discard(version.name)
+            for version in nversions:
+                print("{}: needed {} version {} not found".format(
+                    fsdecode(filename), fsdecode(nfilename),
+                    fsdecode(version)), file=stderr)
+                fail = True
+                needed_missing = True
         
         if needed_missing or not self.symboldeps:
             self.fail |= fail
@@ -711,7 +725,7 @@ class Analyser(object):
             
             hashes = list()
             hashes.append(dynamic.symbol_hash(symtab))
-            for file in needed_paths:
+            for file in needed_paths.values():
                 file = context.enter_context(closing(self.fs.open(file)))
                 ddynamic = elf.Segments(ELFFile(file)).read_dynamic()
                 dsymtab = ddynamic.symbol_table()
