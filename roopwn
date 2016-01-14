@@ -32,6 +32,9 @@
         missing dep
     * Option to force unlock sync DB
     * Some sort of friendly search and install mode
+    * Only decompress the parts of packages that will be interesting, to
+        conserve disk space. E.g. specific sections of ELF files, such as the
+        symbol hash table.
 
 Metapac:
     * generate an optional dependency package based on optdepends info (group
@@ -503,7 +506,8 @@ Options passed to Pacman:
         print("analysing file dependencies...", file=stderr)
         
         if not remove:
-            work = cleanup.enter_context(TemporaryDirectory(prefix="roopwn"))
+            work = TemporaryDirectory(prefix="roopwn.")
+            work = cleanup.enter_context(work)
             
             if verbose:
                 print("extracting packages...", file=stderr)
@@ -951,7 +955,7 @@ def decompress(file, ext, dir):
     except LookupError:
         return file
     
-    decomp_file = basename(decomp_file)
+    decomp_file = basename(decomp_file).replace(":", ".")
     try:
         ext = type["ext"]
     except LookupError:
@@ -964,7 +968,7 @@ def decompress(file, ext, dir):
     decomp_file = os.path.join(dir, decomp_file + ext)
     
     with type["comp"](file) as src:
-        with open(decomp_file, "wb") as dest:
+        with open(decomp_file, "xb") as dest:
             copyfileobj(src, dest)
     
     return decomp_file
