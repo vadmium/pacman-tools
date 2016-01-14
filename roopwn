@@ -694,21 +694,23 @@ class Analyser(object):
         known_broken.clear()
         known_broken.update(now_broken)
         
-        for [nfilename, nversions] in dynamic.versions_needed():
-            nversions = set(v.name for v in nversions)
-            path = needed_paths.get(nfilename)
-            if path is None:
-                continue
-            with closing(self.fs.open(path)) as nfile:
-                ddynamic = elf.Segments(ELFFile(nfile)).read_dynamic()
-                for [version, _] in ddynamic.version_definitions():
-                    nversions.discard(version.name)
-            for version in nversions:
-                print("{}: needed {} version {} not found".format(
-                    fsdecode(filename), fsdecode(nfilename),
-                    fsdecode(version)), file=stderr)
-                fail = True
-                needed_missing = True
+        result = dynamic.versions_needed()
+        if result:
+            for [nfilename, nversions] in result:
+                nversions = set(v.name for v in nversions)
+                path = needed_paths.get(nfilename)
+                if path is None:
+                    continue
+                with closing(self.fs.open(path)) as nfile:
+                    ddynamic = elf.Segments(ELFFile(nfile)).read_dynamic()
+                    for [version, _] in ddynamic.version_definitions():
+                        nversions.discard(version.name)
+                for version in nversions:
+                    print("{}: needed {} version {} not found".format(
+                        fsdecode(filename), fsdecode(nfilename),
+                        fsdecode(version)), file=stderr)
+                    fail = True
+                    needed_missing = True
         
         if needed_missing or not self.symboldeps:
             self.fail |= fail

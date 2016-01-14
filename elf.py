@@ -233,8 +233,14 @@ class Dynamic(object):
     # ELF symbol versioning: https://akkadia.org/drepper/symbol-versioning
     
     def versions_needed(self):
-        [offset] = self.entries["DT_VERNEED"]
+        offset = self.entries["DT_VERNEED"]
+        if not offset:
+            return None
+        [offset] = offset
         offset = self.segments.map(offset)
+        return self._iter_verneed(offset)
+    
+    def _iter_verneed(self, offset):
         [num] = self.entries["DT_VERNEEDNUM"]
         Elf_Verneed = self.elf.structs.Elf_Verneed
         for _ in range(num):
@@ -507,16 +513,21 @@ def dump_segments(elf, *, relocs, dyn_syms, vers, lookup):
             print("  {}".format(format_symbol(sym)))
     
     if vers:
-        print("\nDependency version requirements:")
-        for [file, versions] in dynamic.versions_needed():
-            print("  {!r}:".format(file))
-            for version in versions:
-                if version["vna_flags"]:
-                    flags = ", flags {}".format(version["vna_flags"])
-                else:
-                    flags = ""
-                msg = "    {!r}: index {}{}"
-                print(msg.format(version.name, version["vna_other"], flags))
+        result = dynamic.versions_needed()
+        if result:
+            print("\nDependency version requirements:")
+            for [file, versions] in result:
+                print("  {!r}:".format(file))
+                for version in versions:
+                    if version["vna_flags"]:
+                        flags = ", flags {}".format(version["vna_flags"])
+                    else:
+                        flags = ""
+                    msg = "    {!r}: index {}{}"
+                    print(msg.format(version.name, version["vna_other"],
+                        flags))
+        else:
+            print("\nNo dependency version requirements")
         
         print("\nVersion definitions:")
         found = False
