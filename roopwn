@@ -540,6 +540,8 @@ Options passed to Pacman:
                 anal.fs.removed.add(file)
                 recheck.update(anal.deps.pop(file, ()))
         
+        anal.cache = LibCache(anal.fs)
+        
         if not remove:
             if verbose:
                 print("searching for new dependencies...", file=stderr)
@@ -616,7 +618,6 @@ class Analyser(object):
         
         self.fs = PackagesFs(pacman)
         self.fail = False
-        self.cache = LibCache(self.fs)
     
     def analyse(self, file, filename, mode, on_needed=None):
         fail = False
