@@ -913,7 +913,9 @@ class PackagesFs(Filesystem):
                 res.append(entry)
         
         try:
-            res.extend(OsFilesystem.listdir(self, path))
+            for entry in OsFilesystem.listdir(self, path):
+                if prefix + entry not in self.removed:
+                    res.append(entry)
         except EnvironmentError as err:
             if err.errno != ENOENT or not pkg_dir:
                 raise
